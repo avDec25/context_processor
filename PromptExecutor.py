@@ -24,10 +24,10 @@ def pull_request_data(hostname, pathname):
 
 
 def pull_request_operation(request_id: str, payload: dict) -> str:
+    pr_data = pull_request_data(payload['hostname'], payload['pathname'])
+    print(pr_data['diffs'])
+    prompt = None
     if payload['operation'] == "review":
-        pr_data = pull_request_data(payload['hostname'], payload['pathname'])
-        print(pr_data['diffs'])
-
         prompt = f"""
 Act as a Pull Request Review Assistant. 
 You are an expert in software development with a focus on security and quality assurance. 
@@ -48,7 +48,31 @@ Variables:
 - git diff -
 {pr_data['diffs']}
 """
+    elif payload['operation'] == "explain":
+        prompt = f"""
+Act as a Senior Software Engineer. 
+You are an expert in software development with ability to understand changes in code. 
+Your task is explain this code to an engineering manager who is not in touch with this codebase 
+by providing a summary of it in markdown format.
+
+You will:
+- Provide summary in simple terms.
+- Analyze the code for what it is trying to do.
+- Explain breaking changes that could affect application functionality.
+
+Rules:
+- Always prioritize code functionality explanation.
+- Use clear, concise language in your explanation.
+
+Variables:
+- git diff -
+{pr_data['diffs']}
+"""
+
+    if prompt:
         return run_codex(prompt)
+    else:
+        return "Operation is not recognized"
 
 # if __name__ == '__main__':
 #     codex_prompt = "what is a pull request"
