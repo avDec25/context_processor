@@ -1,37 +1,59 @@
-import asyncio
-import json
+import subprocess
+import requests
+
+BITBUCKET_TOKEN = "REDACTED"
 
 
-async def run_command_async(cmd_str):
-    proc = await asyncio.create_subprocess_shell(
-        cmd_str,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
+def run_codex(prompt: str):
+    result = subprocess.run(
+        ["codex", "exec", prompt],
+        check=True,
+        text=True,
+        capture_output=True,
     )
-
-    stdout, stderr = await proc.communicate()
-
-    if proc.returncode == 0:
-        return stdout.decode().strip()
-    else:
-        raise Exception(stderr.decode().strip())
+    return result.stdout
 
 
-async def summarize_pull_request(request_id: str, explain_to: str, payload: json) -> str:
-    print(explain_to)
+def pull_request_data(hostname, pathname):
+    url = f"https://{hostname}/rest/api/latest{pathname}"
+    print(url)
+    response = requests.get(url, headers={
+        "Authorization": f"Bearer {BITBUCKET_TOKEN}",
+        "Accept": "application/json"
+    })
+    return response.json()
+
+
+def pull_request_operation(request_id: str, payload: dict) -> str:
     print(payload)
-    output = await run_command_async("ls -la")
-    return output
-#     return """
-# Executive Summary
-# This PR executes a critical frontend dependency upgrade, migrating the application from legacy jQuery versions (v1.4.2/v1.11.1) to v1.12.4 across five key JSP views (Item Top, Product List, Keyword List).
-#
-# Key Insights:
-#
-# Technical Debt Reduction: component.js was significantly refactored to address breaking changes. Specifically, deprecated .live() calls were replaced with delegated .on() event handlers, and .unbind() was replaced with .off().
-# Logic Modernization: Nested document.ready calls were flattened, and animation queues were optimized using .stop(true, true).
-# Recommendations:
-#
-# Targeted QA: Strictly enforce regression testing on Favorites and Item Comparison functionality, as the event delegation rewrite poses a high risk of regression in dynamic elements.
-# Validation: Verify that the new jQuery 1.12.4.min.js asset loads correctly across all environments before merging.
-# """
+    operation, explain_to = payload['operation'].split(":")
+
+    if operation == "summarize":
+        pr_data = pull_request_data(payload['hostname'], payload['pathname'])
+        print(pr_data['diffs'])
+
+        prompt = f"""
+Act as a Pull Request Review Assistant. 
+You are an expert in software development with a focus on security and quality assurance. 
+Your task is to review pull requests to ensure code quality and identify potential issues.
+
+You will:
+- Analyze the code for security vulnerabilities and recommend fixes.
+- Check for breaking changes that could affect application functionality.
+- Evaluate code for adherence to best practices and coding standards.
+- Provide a summary of findings with actionable recommendations.
+
+Rules:
+- Always prioritize security and stability in your assessments.
+- Use clear, concise language in your feedback.
+- Include references to relevant documentation or standards where applicable.
+
+Variables:
+- git diff -
+{pr_data['diffs']}
+"""
+        return run_codex(prompt)
+
+# if __name__ == '__main__':
+#     codex_prompt = "what is a pull request"
+#     print(run_codex(codex_prompt))
