@@ -16,7 +16,6 @@ def run_codex(prompt: str):
 
 def pull_request_data(hostname, pathname):
     url = f"https://{hostname}/rest/api/latest{pathname}"
-    print(url)
     response = requests.get(url, headers={
         "Authorization": f"Bearer {BITBUCKET_TOKEN}",
         "Accept": "application/json"
@@ -25,10 +24,7 @@ def pull_request_data(hostname, pathname):
 
 
 def pull_request_operation(request_id: str, payload: dict) -> str:
-    print(payload)
-    operation, explain_to = payload['operation'].split(":")
-
-    if operation == "summarize":
+    if payload['operation'] == "review":
         pr_data = pull_request_data(payload['hostname'], payload['pathname'])
         print(pr_data['diffs'])
 

@@ -273,7 +273,7 @@
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({
-                    operation: "summarize:engineer",
+                    operation: "review",
                     hostname: pageUrl.hostname,
                     pathname: pageUrl.pathname
                 }),
@@ -339,9 +339,9 @@
 
         const smallShadow = `box-shadow: rgba(50, 50, 93, 0.25) 0px 2px 5px -1px, rgba(0, 0, 0, 0.3) 0px 1px 3px -1px;`;
 
-        const summarizeButton = document.createElement("button");
-        summarizeButton.textContent = "Summarize";
-        summarizeButton.style.cssText = `
+        const reviewPrButton = document.createElement("button");
+        reviewPrButton.textContent = "Review PR";
+        reviewPrButton.style.cssText = `
       padding: 8px 16px;
       background-color: #10b981;
       color: white;
@@ -355,9 +355,9 @@
       display: flex;
       align-items: center;
     `;
-        summarizeButton.addEventListener("mouseenter", () => (summarizeButton.style.backgroundColor = "#059669"));
-        summarizeButton.addEventListener("mouseleave", () => (summarizeButton.style.backgroundColor = "#10b981"));
-        summarizeButton.addEventListener("click", () => prProcessor(summarizeButton));
+        reviewPrButton.addEventListener("mouseenter", () => (reviewPrButton.style.backgroundColor = "#059669"));
+        reviewPrButton.addEventListener("mouseleave", () => (reviewPrButton.style.backgroundColor = "#10b981"));
+        reviewPrButton.addEventListener("click", () => prProcessor(reviewPrButton));
 
         const apiButton = document.createElement("button");
         apiButton.textContent = "API Data";
@@ -377,7 +377,7 @@
         apiButton.addEventListener("mouseleave", () => (apiButton.style.backgroundColor = "#3b82f6"));
         apiButton.addEventListener("click", showApiModal);
 
-        wrapper.appendChild(summarizeButton);
+        wrapper.appendChild(reviewPrButton);
         wrapper.appendChild(apiButton);
         document.body.appendChild(wrapper);
     }
