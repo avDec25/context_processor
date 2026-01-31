@@ -2,6 +2,31 @@
     const apiResponses = new Map();
     let lastProcessorResult = null;
 
+    // 1. Inject CSS for the spinner animation
+    function injectSpinnerStyles() {
+        if (document.getElementById('injected-spinner-styles')) return;
+        const style = document.createElement('style');
+        style.id = 'injected-spinner-styles';
+        style.innerHTML = `
+            @keyframes spin-rotate {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            .injected-spinner {
+                display: inline-block;
+                width: 14px;
+                height: 14px;
+                border: 2px solid rgba(255, 255, 255, 0.3);
+                border-radius: 50%;
+                border-top-color: #fff;
+                animation: spin-rotate 1s linear infinite;
+                margin-right: 8px;
+                vertical-align: middle;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
     function toAbsUrl(input) {
         try {
             const u = typeof input === "string" ? input : input?.url;
@@ -232,10 +257,15 @@
     async function prProcessor(btn) {
         const url = "http://localhost:8000/pullrequest";
 
-        const prevText = btn.textContent;
+        // Save original button state
+        const originalContent = btn.innerHTML;
+
+        // UI Loading State
         btn.disabled = true;
         btn.style.opacity = "0.85";
-        btn.style.cursor = "not-allowed";
+        btn.style.cursor = "wait"; // Indicates background processing
+        // Inject spinner + text
+        btn.innerHTML = `<span class="injected-spinner"></span>Processing...`;
 
         try {
             const pageUrl = new URL(window.location.href);
@@ -284,14 +314,18 @@
 
             showProcessorModal(lastProcessorResult);
         } finally {
+            // Restore button state
             btn.disabled = false;
-            btn.textContent = prevText;
+            btn.innerHTML = originalContent;
             btn.style.opacity = "1";
             btn.style.cursor = "pointer";
         }
     }
 
     function initButtons() {
+        // Ensure CSS is injected
+        injectSpinnerStyles();
+
         const wrapper = document.createElement("div");
         wrapper.style.cssText = `
       position: fixed;
@@ -318,6 +352,8 @@
       font-weight: 600;
       ${smallShadow}
       transition: background-color 0.15s ease;
+      display: flex;
+      align-items: center;
     `;
         summarizeButton.addEventListener("mouseenter", () => (summarizeButton.style.backgroundColor = "#059669"));
         summarizeButton.addEventListener("mouseleave", () => (summarizeButton.style.backgroundColor = "#10b981"));
