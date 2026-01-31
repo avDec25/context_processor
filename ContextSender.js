@@ -30,15 +30,26 @@
         });
     }
 
-    // 1. Inject CSS for the spinner animation
-    function injectSpinnerStyles() {
-        if (document.getElementById('injected-spinner-styles')) return;
+    // 1. Inject Global CSS (Spinner + Animations)
+    function injectGlobalStyles() {
+        if (document.getElementById('injected-global-styles')) return;
         const style = document.createElement('style');
-        style.id = 'injected-spinner-styles';
+        style.id = 'injected-global-styles';
         style.innerHTML = `
             @keyframes spin-rotate {
                 0% { transform: rotate(0deg); }
                 100% { transform: rotate(360deg); }
+            }
+            /* Slide Down Animation */
+            @keyframes modal-slide-down {
+                0% { 
+                    opacity: 0; 
+                    transform: translateY(-30px) scale(0.98); 
+                }
+                100% { 
+                    opacity: 1; 
+                    transform: translateY(0) scale(1); 
+                }
             }
             .injected-spinner {
                 display: inline-block;
@@ -104,36 +115,51 @@
 
     function showModal({title, bodyHtml}) {
         const modal = document.createElement("div");
+
+        // Glass Effect Overlay
         modal.style.cssText = `
-      position: fixed; inset: 0;
-      background-color: rgba(0,0,0,0.7);
-      z-index: 1000000;
-      display: flex; justify-content: center; align-items: center;
-      padding: 16px; box-sizing: border-box;
-    `;
+            position: fixed; inset: 0;
+            background-color: rgba(30, 30, 30, 0.4); /* Lower opacity to show blur */
+            backdrop-filter: blur(5px);              /* Glass effect */
+            -webkit-backdrop-filter: blur(5px);      /* Safari support */
+            z-index: 1000000;
+            display: flex; justify-content: center; align-items: flex-start; /* Align top for slide down effect */
+            padding-top: 60px; /* Offset from top */
+            box-sizing: border-box;
+        `;
 
         const modalContent = document.createElement("div");
+
+        // Dense Shadow & Squircle Logic
+        // Squircle approximation: larger border radius (20px+)
+        // Dense shadow: higher alpha, lower blur
+        const denseShadow = `0px 4px 6px rgba(0, 0, 0, 0.3), 0px 10px 25px rgba(0, 0, 0, 0.2)`;
+
         modalContent.style.cssText = `
-      background-color: white;
-      padding: 0; /* Padding handled by inner containers */
-      border-radius: 8px;
-      width: min(900px, 90vw);
-      max-height: 85vh;
-      display: flex;
-      flex-direction: column;
-      box-shadow: rgba(50, 50, 93, 0.25) 0px 2px 5px -1px, rgba(0, 0, 0, 0.3) 0px 1px 3px -1px;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-    `;
+            background-color: white;
+            padding: 0;
+            border-radius: 24px; /* Squircle-ish */
+            width: min(900px, 90vw);
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: ${denseShadow};
+            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+            
+            /* Slide Down Animation */
+            animation: modal-slide-down 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            opacity: 0; /* Start hidden for animation */
+        `;
 
         modalContent.innerHTML = `
-      <div style="padding: 16px 20px; border-bottom: 1px solid #eee; display:flex; align-items:center; justify-content:space-between;">
-        <h2 style="margin:0; font-size: 18px;">${escapeHtml(title)}</h2>
+      <div style="padding: 16px 24px; border-bottom: 1px solid #eee; display:flex; align-items:center; justify-content:space-between;">
+        <h2 style="margin:0; font-size: 18px; font-weight: 700; color: #333;">${escapeHtml(title)}</h2>
         <button id="closeModal"
-          style="padding:6px 12px; background:#f44336; color:white; border:none; border-radius:4px; cursor:pointer;">
+          style="padding:6px 12px; background:#ef4444; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:600; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
           Close
         </button>
       </div>
-      <div style="overflow: auto; padding: 20px;">
+      <div style="overflow: auto; padding: 24px;">
         ${bodyHtml}
       </div>
     `;
@@ -168,7 +194,7 @@
                         : JSON.stringify(response.data, null, 2);
 
                 html += `
-              <div style="margin-top:14px; padding:12px; border:1px solid #e5e7eb; border-radius:8px;">
+              <div style="margin-top:14px; padding:12px; border:1px solid #e5e7eb; border-radius:12px;">
                 <div><strong>URL:</strong> ${escapeHtml(response.url)}</div>
                 <div><strong>Type:</strong> ${escapeHtml(response.type)}</div>
                 <div><strong>Time:</strong> ${response.timestamp?.toLocaleString?.() ?? "-"}</div>
@@ -207,7 +233,7 @@
         let body = "";
 
         if (result.error != null) {
-            body = `<pre style="background:#fef2f2; border:1px solid #fecaca; padding:10px; border-radius:8px; overflow:auto; max-height:320px; margin:12px 0 0; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(result.error)}</pre>`;
+            body = `<pre style="background:#fef2f2; border:1px solid #fecaca; padding:10px; border-radius:12px; overflow:auto; max-height:320px; margin:12px 0 0; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(result.error)}</pre>`;
         } else {
             // --- MARKDOWN RENDERING LOGIC ---
             let contentToRender = "";
@@ -370,7 +396,7 @@
         loadScript(LIBS.marked).catch(e => console.error("Failed to load Marked.js", e));
 
         // 2. Inject CSS
-        injectSpinnerStyles();
+        injectGlobalStyles();
 
         const wrapper = document.createElement("div");
         wrapper.style.cssText = `
@@ -379,48 +405,61 @@
       right: 20px;
       z-index: 999999;
       display: flex;
-      gap: 10px;
+      gap: 12px;
       align-items: center;
     `;
 
-        const smallShadow = `box-shadow: rgba(50, 50, 93, 0.25) 0px 2px 5px -1px, rgba(0, 0, 0, 0.3) 0px 1px 3px -1px;`;
+        // Dense, short shadow for buttons
+        const denseShadow = `box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.3), 0px 1px 1px rgba(0, 0, 0, 0.1);`;
 
         const reviewPrButton = document.createElement("button");
         reviewPrButton.textContent = "Review PR";
         reviewPrButton.style.cssText = `
-      padding: 8px 16px;
+      padding: 10px 18px;
       background-color: #10b981;
       color: white;
       border: none;
-      border-radius: 6px;
+      border-radius: 14px; /* Squircle effect */
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
-      ${smallShadow}
-      transition: background-color 0.15s ease;
+      ${denseShadow}
+      transition: all 0.15s ease;
       display: flex;
       align-items: center;
     `;
-        reviewPrButton.addEventListener("mouseenter", () => (reviewPrButton.style.backgroundColor = "#059669"));
-        reviewPrButton.addEventListener("mouseleave", () => (reviewPrButton.style.backgroundColor = "#10b981"));
+        reviewPrButton.addEventListener("mouseenter", () => {
+             reviewPrButton.style.backgroundColor = "#059669";
+             reviewPrButton.style.transform = "translateY(-1px)";
+        });
+        reviewPrButton.addEventListener("mouseleave", () => {
+             reviewPrButton.style.backgroundColor = "#10b981";
+             reviewPrButton.style.transform = "translateY(0)";
+        });
         reviewPrButton.addEventListener("click", () => prProcessor(reviewPrButton));
 
         const apiButton = document.createElement("button");
         apiButton.textContent = "API Data";
         apiButton.style.cssText = `
-      padding: 8px 16px;
+      padding: 10px 18px;
       background-color: #3b82f6;
       color: white;
       border: none;
-      border-radius: 6px;
+      border-radius: 14px; /* Squircle effect */
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
-      ${smallShadow}
-      transition: background-color 0.15s ease;
+      ${denseShadow}
+      transition: all 0.15s ease;
     `;
-        apiButton.addEventListener("mouseenter", () => (apiButton.style.backgroundColor = "#2563eb"));
-        apiButton.addEventListener("mouseleave", () => (apiButton.style.backgroundColor = "#3b82f6"));
+        apiButton.addEventListener("mouseenter", () => {
+            apiButton.style.backgroundColor = "#2563eb";
+            apiButton.style.transform = "translateY(-1px)";
+        });
+        apiButton.addEventListener("mouseleave", () => {
+            apiButton.style.backgroundColor = "#3b82f6";
+            apiButton.style.transform = "translateY(0)";
+        });
         apiButton.addEventListener("click", showApiModal);
 
         wrapper.appendChild(reviewPrButton);
