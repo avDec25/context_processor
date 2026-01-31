@@ -2,6 +2,34 @@
     const apiResponses = new Map();
     let lastProcessorResult = null;
 
+    // --- Configuration for External Libraries ---
+    const LIBS = {
+        marked: "https://cdn.jsdelivr.net/npm/marked/marked.min.js",
+        css: "https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-light.min.css"
+    };
+
+    // --- Helper: Inject External Resources ---
+    function loadCss(href) {
+        if (document.querySelector(`link[href="${href}"]`)) return;
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = href;
+        document.head.appendChild(link);
+    }
+
+    function loadScript(src) {
+        return new Promise((resolve, reject) => {
+            if (document.querySelector(`script[src="${src}"]`)) {
+                return resolve(); // Already loaded
+            }
+            const script = document.createElement("script");
+            script.src = src;
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+    }
+
     // 1. Inject CSS for the spinner animation
     function injectSpinnerStyles() {
         if (document.getElementById('injected-spinner-styles')) return;
@@ -22,6 +50,15 @@
                 animation: spin-rotate 1s linear infinite;
                 margin-right: 8px;
                 vertical-align: middle;
+            }
+            /* Override modal styles for markdown content */
+            .markdown-body {
+                box-sizing: border-box;
+                min-width: 200px;
+                max-width: 100%;
+                margin: 0 auto;
+                padding: 15px;
+                font-size: 14px;
             }
         `;
         document.head.appendChild(style);
@@ -78,24 +115,27 @@
         const modalContent = document.createElement("div");
         modalContent.style.cssText = `
       background-color: white;
-      padding: 20px;
+      padding: 0; /* Padding handled by inner containers */
       border-radius: 8px;
       width: min(900px, 90vw);
-      max-height: 80vh;
-      overflow: auto;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
       box-shadow: rgba(50, 50, 93, 0.25) 0px 2px 5px -1px, rgba(0, 0, 0, 0.3) 0px 1px 3px -1px;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
     `;
 
         modalContent.innerHTML = `
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
-        <h2 style="margin:0;">${escapeHtml(title)}</h2>
+      <div style="padding: 16px 20px; border-bottom: 1px solid #eee; display:flex; align-items:center; justify-content:space-between;">
+        <h2 style="margin:0; font-size: 18px;">${escapeHtml(title)}</h2>
         <button id="closeModal"
-          style="padding:8px 12px; background:#f44336; color:white; border:none; border-radius:6px; cursor:pointer;">
+          style="padding:6px 12px; background:#f44336; color:white; border:none; border-radius:4px; cursor:pointer;">
           Close
         </button>
       </div>
-      <div style="margin-top:14px;">${bodyHtml}</div>
+      <div style="overflow: auto; padding: 20px;">
+        ${bodyHtml}
+      </div>
     `;
 
         modal.appendChild(modalContent);
@@ -147,13 +187,13 @@
         if (!result) {
             showModal({
                 title: "Processor Result",
-                bodyHtml: `<p style="margin:0;">No response yet. Click <strong>Summarize</strong> first.</p>`,
+                bodyHtml: `<p style="margin:0;">No response yet. Click <strong>Review PR</strong> first.</p>`,
             });
             return;
         }
 
         const meta = `
-      <div style="display:grid; gap:6px; color:#111827;">
+      <div style="display:grid; gap:6px; color:#111827; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px dashed #e5e7eb;">
         <div><strong>URL:</strong> ${escapeHtml(result.url)}</div>
         <div><strong>Time:</strong> ${result.timestamp.toLocaleString()}</div>
         ${
@@ -164,31 +204,46 @@
       </div>
     `;
 
-        const body =
-            result.error != null
-                ? `<pre style="background:#fef2f2; border:1px solid #fecaca; padding:10px; border-radius:8px; overflow:auto; max-height:320px; margin:12px 0 0; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(
-                    result.error
-                )}</pre>
-           <div style="margin-top:10px; color:#374151; font-size:13px; line-height:1.35;">
-             If your backend logs the request but the browser shows <em>Failed to fetch</em>, it’s usually:
-             <ul style="margin:6px 0 0 18px;">
-               <li><strong>CORS</strong> blocked (missing <code>Access-Control-Allow-Origin</code>).</li>
-               <li><strong>Mixed content</strong> (page is https, calling http backend).</li>
-             </ul>
-           </div>`
-                : `<pre style="background:#f9fafb; border:1px solid #eee; padding:10px; border-radius:8px; overflow:auto; max-height:320px; margin:12px 0 0; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(
-                    typeof result.data === "string"
-                        ? result.data
-                        : JSON.stringify(result.data, null, 2)
-                )}</pre>`;
+        let body = "";
 
-        showModal({title: "Context Processor Response", bodyHtml: meta + body});
+        if (result.error != null) {
+            body = `<pre style="background:#fef2f2; border:1px solid #fecaca; padding:10px; border-radius:8px; overflow:auto; max-height:320px; margin:12px 0 0; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(result.error)}</pre>`;
+        } else {
+            // --- MARKDOWN RENDERING LOGIC ---
+            let contentToRender = "";
+
+            // 1. Determine what string to pass to Marked
+            if (typeof result.data === "string") {
+                contentToRender = result.data;
+            } else {
+                // If it's JSON, wrap it in a markdown code block so it renders nicely
+                contentToRender = "```json\n" + JSON.stringify(result.data, null, 2) + "\n```";
+            }
+
+            // 2. Convert Markdown to HTML using Marked.js
+            let renderedHtml = "";
+            if (window.marked && typeof window.marked.parse === 'function') {
+                try {
+                    renderedHtml = window.marked.parse(contentToRender);
+                } catch (e) {
+                    renderedHtml = `<p style="color:red">Error rendering markdown: ${e.message}</p><pre>${escapeHtml(contentToRender)}</pre>`;
+                }
+            } else {
+                // Fallback if library failed to load
+                renderedHtml = `<pre>${escapeHtml(contentToRender)}</pre>`;
+            }
+
+            // 3. Wrap in 'markdown-body' class for GitHub CSS styling
+            body = `<div class="markdown-body">${renderedHtml}</div>`;
+        }
+
+        showModal({title: "PR Review Result", bodyHtml: meta + body});
     }
 
+    // ... (originalFetch interception logic remains the same) ...
     const originalFetch = window.fetch;
     window.fetch = async function (...args) {
         const url = toAbsUrl(args[0]);
-
         try {
             const response = await originalFetch.apply(this, args);
             await (async () => {
@@ -211,7 +266,6 @@
                     });
                 }
             })();
-
             return response;
         } catch (e) {
             apiResponses.set(url, {
@@ -224,25 +278,19 @@
         }
     };
 
+    // ... (XMLHttpRequest interception logic remains the same) ...
     const originalXHROpen = XMLHttpRequest.prototype.open;
     const originalXHRSend = XMLHttpRequest.prototype.send;
-
     XMLHttpRequest.prototype.open = function (method, url) {
         this._url = toAbsUrl(url);
         return originalXHROpen.apply(this, arguments);
     };
-
     XMLHttpRequest.prototype.send = function () {
         this.addEventListener("load", function () {
             const url = this._url || "(unknown)";
             const text = this.responseText;
-
             let data = text;
-            try {
-                data = JSON.parse(text);
-            } catch {
-            }
-
+            try { data = JSON.parse(text); } catch {}
             apiResponses.set(url, {
                 url,
                 data,
@@ -257,14 +305,10 @@
     async function prProcessor(btn) {
         const url = "http://localhost:8000/pullrequest";
 
-        // Save original button state
         const originalContent = btn.innerHTML;
-
-        // UI Loading State
         btn.disabled = true;
         btn.style.opacity = "0.85";
-        btn.style.cursor = "wait"; // Indicates background processing
-        // Inject spinner + text
+        btn.style.cursor = "wait";
         btn.innerHTML = `<span class="injected-spinner"></span>Processing...`;
 
         try {
@@ -278,7 +322,6 @@
                     pathname: pageUrl.pathname
                 }),
             });
-
 
             const body = await readBodySafe(res);
             lastProcessorResult = {
@@ -314,7 +357,6 @@
 
             showProcessorModal(lastProcessorResult);
         } finally {
-            // Restore button state
             btn.disabled = false;
             btn.innerHTML = originalContent;
             btn.style.opacity = "1";
@@ -323,7 +365,11 @@
     }
 
     function initButtons() {
-        // Ensure CSS is injected
+        // 1. Load External Libraries for Markdown
+        loadCss(LIBS.css);
+        loadScript(LIBS.marked).catch(e => console.error("Failed to load Marked.js", e));
+
+        // 2. Inject CSS
         injectSpinnerStyles();
 
         const wrapper = document.createElement("div");
