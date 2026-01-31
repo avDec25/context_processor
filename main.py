@@ -28,7 +28,7 @@ async def pr_processor(request: Request):
     request_id = str(uuid.uuid4())
 
     if operation == "summarize":
-        response = summarize_pull_request(request_id, args, payload)
+        response = await summarize_pull_request(request_id, args, payload)
         return response
     else:
         return {"message": f"Operation {operation} is not supported"}
