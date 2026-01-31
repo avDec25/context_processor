@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import json
 from PromptExecutor import summarize_pull_request
+import uuid
 
 app = FastAPI()
 
@@ -24,9 +25,10 @@ async def pr_processor(request: Request):
     data = await request.body()
     payload = json.loads(data.decode("utf-8"))
     operation, args = payload['operation'].split(":")
+    request_id = str(uuid.uuid4())
 
     if operation == "summarize":
-        response = summarize_pull_request(args, payload)
+        response = summarize_pull_request(request_id, args, payload)
         return response
     else:
         return {"message": f"Operation {operation} is not supported"}

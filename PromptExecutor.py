@@ -1,8 +1,10 @@
 import json
+import time
 
 
-def summarize_pull_request(explain_to: str, payload: json) -> str:
+def summarize_pull_request(request_id: str, explain_to: str, payload: json) -> str:
     print(explain_to)
+    time.sleep(5)
     print(payload)
     return """
 Executive Summary
