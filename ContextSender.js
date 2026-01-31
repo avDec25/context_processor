@@ -90,7 +90,6 @@
         if (apiResponses.size === 0) {
             html += `<p style="margin:12px 0 0;">No API calls captured yet.</p>`;
         } else {
-            // Sort by time (newest first). For oldest first use: a.timestamp - b.timestamp
             const sorted = Array.from(apiResponses.entries()).sort(([, a], [, b]) => {
                 const at = a?.timestamp instanceof Date ? a.timestamp.getTime() : 0;
                 const bt = b?.timestamp instanceof Date ? b.timestamp.getTime() : 0;
@@ -110,7 +109,7 @@
                 <div><strong>Time:</strong> ${response.timestamp?.toLocaleString?.() ?? "-"}</div>
                 <div><strong>Status:</strong> ${response.status ?? "-"}</div>
                 <div style="margin-top:8px;"><strong>Data:</strong></div>
-                <pre style="background:#f9fafb; border:1px solid #eee; padding:10px; border-radius:8px; overflow:auto; max-height:240px; margin:6px 0 0;">${escapeHtml(pretty)}</pre>
+                <pre style="background:#f9fafb; border:1px solid #eee; padding:10px; border-radius:8px; overflow:auto; max-height:240px; margin:6px 0 0; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(pretty)}</pre>
               </div>
             `;
             }
@@ -142,7 +141,7 @@
 
         const body =
             result.error != null
-                ? `<pre style="background:#fef2f2; border:1px solid #fecaca; padding:10px; border-radius:8px; overflow:auto; max-height:320px; margin:12px 0 0;">${escapeHtml(
+                ? `<pre style="background:#fef2f2; border:1px solid #fecaca; padding:10px; border-radius:8px; overflow:auto; max-height:320px; margin:12px 0 0; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(
                     result.error
                 )}</pre>
            <div style="margin-top:10px; color:#374151; font-size:13px; line-height:1.35;">
@@ -152,7 +151,7 @@
                <li><strong>Mixed content</strong> (page is https, calling http backend).</li>
              </ul>
            </div>`
-                : `<pre style="background:#f9fafb; border:1px solid #eee; padding:10px; border-radius:8px; overflow:auto; max-height:320px; margin:12px 0 0;">${escapeHtml(
+                : `<pre style="background:#f9fafb; border:1px solid #eee; padding:10px; border-radius:8px; overflow:auto; max-height:320px; margin:12px 0 0; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(
                     typeof result.data === "string"
                         ? result.data
                         : JSON.stringify(result.data, null, 2)
@@ -235,7 +234,6 @@
 
         const prevText = btn.textContent;
         btn.disabled = true;
-        // btn.textContent = "Calling...";
         btn.style.opacity = "0.85";
         btn.style.cursor = "not-allowed";
 
