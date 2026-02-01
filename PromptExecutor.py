@@ -1,6 +1,6 @@
 import subprocess
 import requests
-from pr_manager import read_pr_ai_response, write_pr_ai_response
+from pr_manager import read_pr_ai_response, write_pr_ai_response, delete_pr_ai_response
 
 BITBUCKET_TOKEN = "REDACTED"
 
@@ -32,8 +32,15 @@ def get_pr_id(pathname: str) -> str:
 
 def pull_request_operation(payload: dict) -> str:
     operation = payload.get('operation')
-    if operation in ['explain', 'review']:
+    if operation in ['explain', 'review', 'delete']:
         pr_id = get_pr_id(payload.get('pathname'))
+
+        if payload['operation'] == "delete":
+            if delete_pr_ai_response(pr_id):
+                return f"Success: Deleted entry {pr_id}"
+            else:
+                return "Failed: None Deleted"
+
         response = read_pr_ai_response(pr_id) or {}
 
         if response.get(operation):

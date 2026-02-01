@@ -30,7 +30,7 @@
         });
     }
 
-    // 1. Inject Global CSS (Spinner + Animations)
+    // Inject Global CSS (Spinner + Animations + Scrollbar Fix)
     function injectGlobalStyles() {
         if (document.getElementById('injected-global-styles')) return;
         const style = document.createElement('style');
@@ -40,7 +40,20 @@
                 0% { transform: rotate(0deg); }
                 100% { transform: rotate(360deg); }
             }
-            /* Slide Down Animation */
+            
+            @keyframes overlay-fade-in {
+                0% {
+                    background-color: rgba(30, 30, 30, 0);
+                    backdrop-filter: blur(0px);
+                    -webkit-backdrop-filter: blur(0px);
+                }
+                100% {
+                    background-color: rgba(30, 30, 30, 0.4);
+                    backdrop-filter: blur(5px);
+                    -webkit-backdrop-filter: blur(5px);
+                }
+            }
+
             @keyframes modal-slide-down {
                 0% { 
                     opacity: 0; 
@@ -51,6 +64,7 @@
                     transform: translateY(0) scale(1); 
                 }
             }
+
             .injected-spinner {
                 display: inline-block;
                 width: 14px;
@@ -62,7 +76,7 @@
                 margin-right: 8px;
                 vertical-align: middle;
             }
-            /* Override modal styles for markdown content */
+
             .markdown-body {
                 box-sizing: border-box;
                 min-width: 200px;
@@ -70,6 +84,30 @@
                 margin: 0 auto;
                 padding: 15px;
                 font-size: 14px;
+            }
+
+            /* --- NEW: Custom Scrollbar to fix corner clipping --- */
+            .custom-scrollbar {
+                scrollbar-width: thin;
+                scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+            }
+            /* Webkit (Chrome/Safari/Edge) */
+            .custom-scrollbar::-webkit-scrollbar {
+                width: 10px;
+                height: 10px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-track {
+                background: transparent; /* Makes the track invisible so rounded corner shows */
+                margin-bottom: 12px;     /* Adds a little spacing from the bottom edge */
+            }
+            .custom-scrollbar::-webkit-scrollbar-thumb {
+                background-color: rgba(0, 0, 0, 0.2); /* Semi-transparent grey */
+                border-radius: 10px;       /* Rounded thumb */
+                border: 2px solid transparent; /* Creates padding around the thumb */
+                background-clip: content-box;
+            }
+            .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                background-color: rgba(0, 0, 0, 0.35);
             }
         `;
         document.head.appendChild(style);
@@ -116,50 +154,49 @@
     function showModal({title, bodyHtml}) {
         const modal = document.createElement("div");
 
-        // Glass Effect Overlay
         modal.style.cssText = `
             position: fixed; inset: 0;
-            background-color: rgba(30, 30, 30, 0.4); /* Lower opacity to show blur */
-            backdrop-filter: blur(5px);              /* Glass effect */
-            -webkit-backdrop-filter: blur(5px);      /* Safari support */
+            background-color: rgba(30, 30, 30, 0);
+            backdrop-filter: blur(0px);
+            -webkit-backdrop-filter: blur(0px);
             z-index: 1000000;
-            display: flex; justify-content: center; align-items: flex-start; /* Align top for slide down effect */
-            padding-top: 60px; /* Offset from top */
+            display: flex; justify-content: center; align-items: flex-start;
+            padding-top: 60px;
             box-sizing: border-box;
+            animation: overlay-fade-in 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
         `;
 
         const modalContent = document.createElement("div");
-
-        // Dense Shadow & Squircle Logic
-        // Squircle approximation: larger border radius (20px+)
-        // Dense shadow: higher alpha, lower blur
         const denseShadow = `0px 4px 6px rgba(0, 0, 0, 0.3), 0px 10px 25px rgba(0, 0, 0, 0.2)`;
 
+        // --- UPDATED: Added overflow: hidden ---
         modalContent.style.cssText = `
             background-color: white;
             padding: 0;
-            border-radius: 24px; /* Squircle-ish */
+            border-radius: 24px;
             width: min(900px, 90vw);
             max-height: 80vh;
             display: flex;
             flex-direction: column;
             box-shadow: ${denseShadow};
             font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+            overflow: hidden; /* Ensures children don't bleed over the rounded corners */
             
-            /* Slide Down Animation */
-            animation: modal-slide-down 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-            opacity: 0; /* Start hidden for animation */
+            animation: modal-slide-down 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            opacity: 0;
+            animation-delay: 0.1s; 
         `;
 
+        // --- UPDATED: Added class 'custom-scrollbar' to the content div ---
         modalContent.innerHTML = `
-      <div style="padding: 16px 24px; border-bottom: 1px solid #eee; display:flex; align-items:center; justify-content:space-between;">
+      <div style="padding: 16px 24px; border-bottom: 1px solid #eee; display:flex; align-items:center; justify-content:space-between; flex-shrink: 0; background: white;">
         <h2 style="margin:0; font-size: 18px; font-weight: 700; color: #333;">${escapeHtml(title)}</h2>
         <button id="closeModal"
           style="padding:6px 12px; background:#ef4444; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:600; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
           Close
         </button>
       </div>
-      <div style="overflow: auto; padding: 24px;">
+      <div class="custom-scrollbar" style="overflow-y: auto; padding: 24px; flex-grow: 1;">
         ${bodyHtml}
       </div>
     `;
@@ -209,11 +246,11 @@
     }
 
 
-    function showProcessorModal(result) {
+    function showProcessorModal(result, title = "Operation Result") {
         if (!result) {
             showModal({
-                title: "Processor Result",
-                bodyHtml: `<p style="margin:0;">No response yet. Click <strong>Review PR</strong> first.</p>`,
+                title: title,
+                bodyHtml: `<p style="margin:0;">No response yet.</p>`,
             });
             return;
         }
@@ -255,18 +292,15 @@
                     renderedHtml = `<p style="color:red">Error rendering markdown: ${e.message}</p><pre>${escapeHtml(contentToRender)}</pre>`;
                 }
             } else {
-                // Fallback if library failed to load
                 renderedHtml = `<pre>${escapeHtml(contentToRender)}</pre>`;
             }
 
-            // 3. Wrap in 'markdown-body' class for GitHub CSS styling
             body = `<div class="markdown-body">${renderedHtml}</div>`;
         }
 
-        showModal({title: "PR Review Result", bodyHtml: meta + body});
+        showModal({title: title, bodyHtml: meta + body});
     }
 
-    // ... (originalFetch interception logic remains the same) ...
     const originalFetch = window.fetch;
     window.fetch = async function (...args) {
         const url = toAbsUrl(args[0]);
@@ -304,7 +338,6 @@
         }
     };
 
-    // ... (XMLHttpRequest interception logic remains the same) ...
     const originalXHROpen = XMLHttpRequest.prototype.open;
     const originalXHRSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.open = function (method, url) {
@@ -328,14 +361,14 @@
         return originalXHRSend.apply(this, arguments);
     };
 
-    async function prProcessor(btn) {
+    async function triggerPrAction(btn, operation, loadingText) {
         const url = "http://localhost:8000/pullrequest";
 
         const originalContent = btn.innerHTML;
         btn.disabled = true;
         btn.style.opacity = "0.85";
         btn.style.cursor = "wait";
-        btn.innerHTML = `<span class="injected-spinner"></span>Processing...`;
+        btn.innerHTML = `<span class="injected-spinner"></span>${loadingText}`;
 
         try {
             const pageUrl = new URL(window.location.href);
@@ -343,7 +376,7 @@
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({
-                    operation: "review",
+                    operation: operation,
                     hostname: pageUrl.hostname,
                     pathname: pageUrl.pathname
                 }),
@@ -362,11 +395,16 @@
                 url,
                 data: body.data,
                 timestamp: new Date(),
-                type: "hello(fetch)",
+                type: `${operation}(fetch)`,
                 status: res.status,
             });
 
-            showProcessorModal(lastProcessorResult);
+            let modalTitle = "Result";
+            if (operation === 'delete') modalTitle = "Delete Result";
+            else if (operation === 'review') modalTitle = "PR Review Result";
+            else if (operation === 'explain') modalTitle = "Explanation Result";
+
+            showProcessorModal(lastProcessorResult, modalTitle);
         } catch (err) {
             lastProcessorResult = {
                 url,
@@ -378,10 +416,10 @@
                 url,
                 data: lastProcessorResult.error,
                 timestamp: new Date(),
-                type: "hello(fetch-error)",
+                type: `${operation}(fetch-error)`,
             });
 
-            showProcessorModal(lastProcessorResult);
+            showProcessorModal(lastProcessorResult, "Operation Error");
         } finally {
             btn.disabled = false;
             btn.innerHTML = originalContent;
@@ -409,9 +447,37 @@
       align-items: center;
     `;
 
-        // Dense, short shadow for buttons
         const denseShadow = `box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.3), 0px 1px 1px rgba(0, 0, 0, 0.1);`;
 
+        // --- BUTTON 1: EXPLAIN (PURPLE) ---
+        const explainButton = document.createElement("button");
+        explainButton.textContent = "Explain";
+        explainButton.style.cssText = `
+      padding: 10px 18px;
+      background-color: #8b5cf6; /* Purple */
+      color: white;
+      border: none;
+      border-radius: 14px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      ${denseShadow}
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+    `;
+        explainButton.addEventListener("mouseenter", () => {
+             explainButton.style.backgroundColor = "#7c3aed";
+             explainButton.style.transform = "translateY(-1px)";
+        });
+        explainButton.addEventListener("mouseleave", () => {
+             explainButton.style.backgroundColor = "#8b5cf6";
+             explainButton.style.transform = "translateY(0)";
+        });
+        explainButton.addEventListener("click", () => triggerPrAction(explainButton, 'explain', 'Explaining...'));
+
+
+        // --- BUTTON 2: REVIEW PR (GREEN) ---
         const reviewPrButton = document.createElement("button");
         reviewPrButton.textContent = "Review PR";
         reviewPrButton.style.cssText = `
@@ -419,7 +485,7 @@
       background-color: #10b981;
       color: white;
       border: none;
-      border-radius: 14px; /* Squircle effect */
+      border-radius: 14px;
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
@@ -436,8 +502,38 @@
              reviewPrButton.style.backgroundColor = "#10b981";
              reviewPrButton.style.transform = "translateY(0)";
         });
-        reviewPrButton.addEventListener("click", () => prProcessor(reviewPrButton));
+        reviewPrButton.addEventListener("click", () => triggerPrAction(reviewPrButton, 'review', 'Processing...'));
 
+
+        // --- BUTTON 3: DELETE (RED) ---
+        const deleteButton = document.createElement("button");
+        deleteButton.textContent = "Delete";
+        deleteButton.style.cssText = `
+      padding: 10px 18px;
+      background-color: #ef4444; /* Red */
+      color: white;
+      border: none;
+      border-radius: 14px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      ${denseShadow}
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+    `;
+        deleteButton.addEventListener("mouseenter", () => {
+             deleteButton.style.backgroundColor = "#dc2626";
+             deleteButton.style.transform = "translateY(-1px)";
+        });
+        deleteButton.addEventListener("mouseleave", () => {
+             deleteButton.style.backgroundColor = "#ef4444";
+             deleteButton.style.transform = "translateY(0)";
+        });
+        deleteButton.addEventListener("click", () => triggerPrAction(deleteButton, 'delete', 'Deleting...'));
+
+
+        // --- BUTTON 4: API DATA (BLUE) ---
         const apiButton = document.createElement("button");
         apiButton.textContent = "API Data";
         apiButton.style.cssText = `
@@ -445,7 +541,7 @@
       background-color: #3b82f6;
       color: white;
       border: none;
-      border-radius: 14px; /* Squircle effect */
+      border-radius: 14px;
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
@@ -462,7 +558,9 @@
         });
         apiButton.addEventListener("click", showApiModal);
 
+        wrapper.appendChild(explainButton);
         wrapper.appendChild(reviewPrButton);
+        wrapper.appendChild(deleteButton);
         wrapper.appendChild(apiButton);
         document.body.appendChild(wrapper);
     }
