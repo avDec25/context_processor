@@ -32,7 +32,7 @@ def get_pr_id(pathname: str) -> str:
 
 def pull_request_operation(payload: dict) -> str:
     operation = payload.get('operation')
-    if operation in ['explain', 'review', 'delete']:
+    if operation in ['explain', 'review', 'delete', 'test_checklist']:
         pr_id = get_pr_id(payload.get('pathname'))
 
         if payload['operation'] == "delete":
@@ -69,6 +69,24 @@ Variables:
 - git diff -
 {pr_data['diffs']}
 """
+        elif payload['operation'] == "test_checklist":
+            prompt = f"""
+Act as a Senior Quality Assurance Engineer. 
+You are an expert in software testing. 
+Your task is to create a checklist of what to test before merging these code changes.
+
+You will:
+- Analyze the code difference.
+- Provide a checklist of what to test before merging the code changes.
+
+Rules:
+- Always prioritize cases which are must to check for.
+- Use clear, concise language in the checklist you prepared.
+
+Variables:
+- git diff -
+{pr_data['diffs']}
+    """
         elif payload['operation'] == "explain":
             prompt = f"""
 Act as a Senior Software Engineer. 

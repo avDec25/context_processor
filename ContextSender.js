@@ -169,7 +169,6 @@
         const modalContent = document.createElement("div");
         const denseShadow = `0px 4px 6px rgba(0, 0, 0, 0.3), 0px 10px 25px rgba(0, 0, 0, 0.2)`;
 
-        // --- UPDATED: Added overflow: hidden ---
         modalContent.style.cssText = `
             background-color: white;
             padding: 0;
@@ -187,7 +186,6 @@
             animation-delay: 0.1s; 
         `;
 
-        // --- UPDATED: Added class 'custom-scrollbar' to the content div ---
         modalContent.innerHTML = `
       <div style="padding: 16px 24px; border-bottom: 1px solid #eee; display:flex; align-items:center; justify-content:space-between; flex-shrink: 0; background: white;">
         <h2 style="margin:0; font-size: 18px; font-weight: 700; color: #333;">${escapeHtml(title)}</h2>
@@ -275,15 +273,12 @@
             // --- MARKDOWN RENDERING LOGIC ---
             let contentToRender = "";
 
-            // 1. Determine what string to pass to Marked
             if (typeof result.data === "string") {
                 contentToRender = result.data;
             } else {
-                // If it's JSON, wrap it in a markdown code block so it renders nicely
                 contentToRender = "```json\n" + JSON.stringify(result.data, null, 2) + "\n```";
             }
 
-            // 2. Convert Markdown to HTML using Marked.js
             let renderedHtml = "";
             if (window.marked && typeof window.marked.parse === 'function') {
                 try {
@@ -403,6 +398,7 @@
             if (operation === 'delete') modalTitle = "Delete Result";
             else if (operation === 'review') modalTitle = "PR Review Result";
             else if (operation === 'explain') modalTitle = "Explanation Result";
+            else if (operation === 'test_checklist') modalTitle = "Checklist Result";
 
             showProcessorModal(lastProcessorResult, modalTitle);
         } catch (err) {
@@ -438,7 +434,6 @@
 
         const wrapper = document.createElement("div");
 
-        // --- MODIFIED: Added Glassmorphism Styles here ---
         wrapper.style.cssText = `
           position: fixed;
           bottom: 20px;
@@ -451,44 +446,45 @@
           /* Glass Panel Styles */
           padding: 12px 16px;
           background: rgba(255, 255, 255, 0.25);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
+          backdrop-filter: blur(5px);
+          -webkit-backdrop-filter: blur(5px);
           border-radius: 20px;
-          border: 1px solid rgba(255, 255, 255, 0.4);
+          border: 2px solid rgba(255, 255, 255, 0.4);
           box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15);
         `;
 
-        const denseShadow = `box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.3), 0px 1px 1px rgba(0, 0, 0, 0.1);`;
-
-        // --- BUTTON 1: EXPLAIN (PURPLE) ---
+        // --- BUTTON 1: EXPLAIN (INDIGO) ---
+        // Color: #6366f1 -> RGB: 99, 102, 241
+        // Shadow: Stronger opacity (0.6) and larger blur (24px)
         const explainButton = document.createElement("button");
         explainButton.textContent = "Explain";
         explainButton.style.cssText = `
       padding: 10px 18px;
-      background-color: #8b5cf6; /* Purple */
+      background-color: #6366f1;
       color: white;
       border: none;
       border-radius: 14px;
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
-      ${denseShadow}
+      box-shadow: 0 8px 24px 0 rgba(99, 102, 241, 0.6);
       transition: all 0.15s ease;
       display: flex;
       align-items: center;
     `;
         explainButton.addEventListener("mouseenter", () => {
-             explainButton.style.backgroundColor = "#7c3aed";
+             explainButton.style.backgroundColor = "#4f46e5"; // Indigo-600
              explainButton.style.transform = "translateY(-1px)";
         });
         explainButton.addEventListener("mouseleave", () => {
-             explainButton.style.backgroundColor = "#8b5cf6";
+             explainButton.style.backgroundColor = "#6366f1";
              explainButton.style.transform = "translateY(0)";
         });
         explainButton.addEventListener("click", () => triggerPrAction(explainButton, 'explain', 'Explaining...'));
 
 
-        // --- BUTTON 2: REVIEW PR (GREEN) ---
+        // --- BUTTON 2: REVIEW PR (EMERALD) ---
+        // Color: #10b981 -> RGB: 16, 185, 129
         const reviewPrButton = document.createElement("button");
         reviewPrButton.textContent = "Review PR";
         reviewPrButton.style.cssText = `
@@ -500,41 +496,70 @@
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
-      ${denseShadow}
+      box-shadow: 0 8px 24px 0 rgba(16, 185, 129, 0.6);
       transition: all 0.15s ease;
       display: flex;
       align-items: center;
     `;
         reviewPrButton.addEventListener("mouseenter", () => {
-             reviewPrButton.style.backgroundColor = "#059669";
+             reviewPrButton.style.backgroundColor = "#059669"; // Emerald-600
              reviewPrButton.style.transform = "translateY(-1px)";
         });
         reviewPrButton.addEventListener("mouseleave", () => {
              reviewPrButton.style.backgroundColor = "#10b981";
              reviewPrButton.style.transform = "translateY(0)";
         });
-        reviewPrButton.addEventListener("click", () => triggerPrAction(reviewPrButton, 'review', 'Processing...'));
+        reviewPrButton.addEventListener("click", () => triggerPrAction(reviewPrButton, 'review', 'Reviewing...'));
 
-
-        // --- BUTTON 3: DELETE (RED) ---
-        const deleteButton = document.createElement("button");
-        deleteButton.textContent = "Delete";
-        deleteButton.style.cssText = `
+        // --- BUTTON 3: TEST CHECKLIST (ORANGE) ---
+        // Color: #f97316 -> RGB: 249, 115, 22
+        const checklistButton = document.createElement("button");
+        checklistButton.textContent = "Checklist";
+        checklistButton.style.cssText = `
       padding: 10px 18px;
-      background-color: #ef4444; /* Red */
+      background-color: #f97316;
       color: white;
       border: none;
       border-radius: 14px;
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
-      ${denseShadow}
+      box-shadow: 0 8px 24px 0 rgba(249, 115, 22, 0.6);
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+    `;
+        checklistButton.addEventListener("mouseenter", () => {
+             checklistButton.style.backgroundColor = "#ea580c"; // Orange-600
+             checklistButton.style.transform = "translateY(-1px)";
+        });
+        checklistButton.addEventListener("mouseleave", () => {
+             checklistButton.style.backgroundColor = "#f97316";
+             checklistButton.style.transform = "translateY(0)";
+        });
+        checklistButton.addEventListener("click", () => triggerPrAction(checklistButton, 'test_checklist', 'Preparing Checklist...'));
+
+
+        // --- BUTTON 4: DELETE (ROSE RED) ---
+        // Color: #ef4444 -> RGB: 239, 68, 68
+        const deleteButton = document.createElement("button");
+        deleteButton.textContent = "Delete";
+        deleteButton.style.cssText = `
+      padding: 10px 18px;
+      background-color: #ef4444;
+      color: white;
+      border: none;
+      border-radius: 14px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 8px 24px 0 rgba(239, 68, 68, 0.6);
       transition: all 0.15s ease;
       display: flex;
       align-items: center;
     `;
         deleteButton.addEventListener("mouseenter", () => {
-             deleteButton.style.backgroundColor = "#dc2626";
+             deleteButton.style.backgroundColor = "#dc2626"; // Red-600
              deleteButton.style.transform = "translateY(-1px)";
         });
         deleteButton.addEventListener("mouseleave", () => {
@@ -544,33 +569,35 @@
         deleteButton.addEventListener("click", () => triggerPrAction(deleteButton, 'delete', 'Deleting...'));
 
 
-        // --- BUTTON 4: API DATA (BLUE) ---
+        // --- BUTTON 5: API DATA (SLATE GRAY) ---
+        // Color: #4b5563 -> RGB: 75, 85, 99
         const apiButton = document.createElement("button");
         apiButton.textContent = "API Data";
         apiButton.style.cssText = `
       padding: 10px 18px;
-      background-color: #3b82f6;
+      background-color: #4b5563;
       color: white;
       border: none;
       border-radius: 14px;
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
-      ${denseShadow}
+      box-shadow: 0 8px 24px 0 rgba(75, 85, 99, 0.6);
       transition: all 0.15s ease;
     `;
         apiButton.addEventListener("mouseenter", () => {
-            apiButton.style.backgroundColor = "#2563eb";
+            apiButton.style.backgroundColor = "#374151"; // Gray-700
             apiButton.style.transform = "translateY(-1px)";
         });
         apiButton.addEventListener("mouseleave", () => {
-            apiButton.style.backgroundColor = "#3b82f6";
+            apiButton.style.backgroundColor = "#4b5563";
             apiButton.style.transform = "translateY(0)";
         });
         apiButton.addEventListener("click", showApiModal);
 
         wrapper.appendChild(explainButton);
         wrapper.appendChild(reviewPrButton);
+        wrapper.appendChild(checklistButton);
         wrapper.appendChild(deleteButton);
         wrapper.appendChild(apiButton);
         document.body.appendChild(wrapper);
