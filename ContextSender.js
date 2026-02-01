@@ -437,15 +437,26 @@
         injectGlobalStyles();
 
         const wrapper = document.createElement("div");
+
+        // --- MODIFIED: Added Glassmorphism Styles here ---
         wrapper.style.cssText = `
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      z-index: 999999;
-      display: flex;
-      gap: 12px;
-      align-items: center;
-    `;
+          position: fixed;
+          bottom: 20px;
+          right: 20px;
+          z-index: 999999;
+          display: flex;
+          gap: 12px;
+          align-items: center;
+          
+          /* Glass Panel Styles */
+          padding: 12px 16px;
+          background: rgba(255, 255, 255, 0.25);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border-radius: 20px;
+          border: 1px solid rgba(255, 255, 255, 0.4);
+          box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15);
+        `;
 
         const denseShadow = `box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.3), 0px 1px 1px rgba(0, 0, 0, 0.1);`;
 
