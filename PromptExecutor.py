@@ -1,5 +1,6 @@
 import subprocess
 import requests
+from pr_manager import read_pr_ai_response, write_pr_ai_response
 
 BITBUCKET_TOKEN = "REDACTED"
 
@@ -23,12 +24,25 @@ def pull_request_data(hostname, pathname):
     return response.json()
 
 
-def pull_request_operation(request_id: str, payload: dict) -> str:
-    pr_data = pull_request_data(payload['hostname'], payload['pathname'])
-    print(pr_data['diffs'])
-    prompt = None
-    if payload['operation'] == "review":
-        prompt = f"""
+def get_pr_id(pathname: str) -> str:
+    pr_id_data = pathname.split('/')
+    pr_id = f"{pr_id_data[2]}__{pr_id_data[4]}__{pr_id_data[6]}"
+    return pr_id
+
+
+def pull_request_operation(payload: dict) -> str:
+    operation = payload.get('operation')
+    if operation in ['explain', 'review']:
+        pr_id = get_pr_id(payload.get('pathname'))
+        response = read_pr_ai_response(pr_id) or {}
+
+        if response.get(operation):
+            return response[operation]
+
+        pr_data = pull_request_data(payload['hostname'], payload['pathname'])
+        prompt = None
+        if payload['operation'] == "review":
+            prompt = f"""
 Act as a Pull Request Review Assistant. 
 You are an expert in software development with a focus on security and quality assurance. 
 Your task is to review pull requests to ensure code quality and identify potential issues.
@@ -48,8 +62,8 @@ Variables:
 - git diff -
 {pr_data['diffs']}
 """
-    elif payload['operation'] == "explain":
-        prompt = f"""
+        elif payload['operation'] == "explain":
+            prompt = f"""
 Act as a Senior Software Engineer. 
 You are an expert in software development with ability to understand changes in code. 
 Your task is explain this code to an engineering manager who is not in touch with this codebase 
@@ -67,13 +81,12 @@ Rules:
 Variables:
 - git diff -
 {pr_data['diffs']}
-"""
+    """
+        if prompt:
+            ai_response = run_codex(prompt)
+            write_pr_ai_response(pr_id, {
+                payload['operation']: ai_response,
+            })
+            return ai_response
 
-    if prompt:
-        return run_codex(prompt)
-    else:
-        return "Operation is not recognized"
-
-# if __name__ == '__main__':
-#     codex_prompt = "what is a pull request"
-#     print(run_codex(codex_prompt))
+    return "Operation is not recognized"
