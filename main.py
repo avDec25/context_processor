@@ -3,7 +3,7 @@ import json
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from PromptExecutor import pull_request_operation
+from PromptExecutor import pull_request_operation, confluence_operation
 
 app = FastAPI()
 
@@ -27,5 +27,15 @@ async def pr_processor(request: Request):
     payload = json.loads(data.decode("utf-8"))
 
     response = pull_request_operation(payload)
+
+    return response
+
+
+@app.post("/confluence")
+async def confluence_processor(request: Request):
+    data = await request.body()
+    payload = json.loads(data.decode("utf-8"))
+
+    response = confluence_operation(payload)
 
     return response
