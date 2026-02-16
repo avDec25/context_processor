@@ -90,6 +90,7 @@
             .custom-scrollbar {
                 scrollbar-width: thin;
                 scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+                overscroll-behavior: contain; /* Prevents scroll chaining to body */
             }
             /* Webkit (Chrome/Safari/Edge) */
             .custom-scrollbar::-webkit-scrollbar {
@@ -97,13 +98,13 @@
                 height: 10px;
             }
             .custom-scrollbar::-webkit-scrollbar-track {
-                background: transparent; /* Makes the track invisible so rounded corner shows */
-                margin-bottom: 12px;     /* Adds a little spacing from the bottom edge */
+                background: transparent;
+                margin-bottom: 12px;
             }
             .custom-scrollbar::-webkit-scrollbar-thumb {
-                background-color: rgba(0, 0, 0, 0.2); /* Semi-transparent grey */
-                border-radius: 10px;       /* Rounded thumb */
-                border: 2px solid transparent; /* Creates padding around the thumb */
+                background-color: rgba(0, 0, 0, 0.2);
+                border-radius: 10px;
+                border: 2px solid transparent;
                 background-clip: content-box;
             }
             .custom-scrollbar::-webkit-scrollbar-thumb:hover {
@@ -151,9 +152,15 @@
         }
     }
 
+    // --- FIX APPLIED HERE ---
     function showModal({title, bodyHtml}) {
+        // 1. Prevent background scrolling to stop flicker/repaint issues
+        const originalOverflow = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+
         const modal = document.createElement("div");
 
+        // Added 'transform: translateZ(0)' to force GPU layer promotion
         modal.style.cssText = `
             position: fixed; inset: 0;
             background-color: rgba(30, 30, 30, 0);
@@ -164,6 +171,7 @@
             padding-top: 60px;
             box-sizing: border-box;
             animation: overlay-fade-in 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            transform: translateZ(0); 
         `;
 
         const modalContent = document.createElement("div");
@@ -179,8 +187,7 @@
             flex-direction: column;
             box-shadow: ${denseShadow};
             font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-            overflow: hidden; /* Ensures children don't bleed over the rounded corners */
-
+            overflow: hidden; 
             animation: modal-slide-down 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
             opacity: 0;
             animation-delay: 0.1s;
@@ -202,11 +209,17 @@
         modal.appendChild(modalContent);
         document.body.appendChild(modal);
 
-        modalContent.querySelector("#closeModal").addEventListener("click", () => {
-            document.body.removeChild(modal);
-        });
+        // Cleanup function to restore scroll and remove modal
+        const closeModal = () => {
+            document.body.style.overflow = originalOverflow; // Restore scroll
+            if (modal.parentNode) {
+                document.body.removeChild(modal);
+            }
+        };
+
+        modalContent.querySelector("#closeModal").addEventListener("click", closeModal);
         modal.addEventListener("click", (e) => {
-            if (e.target === modal) document.body.removeChild(modal);
+            if (e.target === modal) closeModal();
         });
     }
 
@@ -435,7 +448,7 @@
 
         wrapper.style.cssText = `
           position: fixed;
-          bottom: 20px;
+          bottom: 45px;
           right: 20px;
           z-index: 999999;
           display: flex;
@@ -453,8 +466,6 @@
         `;
 
         // --- BUTTON 1: EXPLAIN (INDIGO) ---
-        // Color: #6366f1 -> RGB: 99, 102, 241
-        // Shadow: Stronger opacity (0.6) and larger blur (24px)
         const explainButton = document.createElement("button");
         explainButton.textContent = "Explain";
         explainButton.style.cssText = `
@@ -483,7 +494,6 @@
 
 
         // --- BUTTON 2: REVIEW PR (EMERALD) ---
-        // Color: #10b981 -> RGB: 16, 185, 129
         const rewriteButton = document.createElement("button");
         rewriteButton.textContent = "Rewrite";
         rewriteButton.style.cssText = `
@@ -513,7 +523,6 @@
 
 
         // --- BUTTON 4: DELETE (ROSE RED) ---
-        // Color: #ef4444 -> RGB: 239, 68, 68
         const deleteButton = document.createElement("button");
         deleteButton.textContent = "Delete";
         deleteButton.style.cssText = `
@@ -542,7 +551,6 @@
 
 
         // --- BUTTON 5: API DATA (SLATE GRAY) ---
-        // Color: #4b5563 -> RGB: 75, 85, 99
         const apiButton = document.createElement("button");
         apiButton.textContent = "API Data";
         apiButton.style.cssText = `
