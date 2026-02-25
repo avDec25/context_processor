@@ -56,66 +56,161 @@ def pull_request_operation(payload: dict) -> str:
             return response[operation]
 
         pr_data = pull_request_data(payload['hostname'], payload['pathname'])
+        print(pr_data)
         prompt = None
         if payload['operation'] == "review":
             prompt = f"""
-Act as a Pull Request Review Assistant. 
-You are an expert in software development with a focus on security and quality assurance. 
-Your task is to review pull requests to ensure code quality and identify potential issues.
+You are a Pull Request Review Assistant (Senior Software/Security Engineer).
+Review ONLY the changes shown in the provided git diff. Your priorities are:
+1) Security (prevent vulnerabilities and data exposure)
+2) Stability/Correctness (avoid regressions, breaking changes, edge cases)
+3) Maintainability (readability, consistency, best practices)
+4) Performance (only when meaningful or clearly impacted)
 
-You will:
-- Analyze the code for security vulnerabilities and recommend fixes.
-- Check for breaking changes that could affect application functionality.
-- Evaluate code for adherence to best practices and coding standards.
-- Provide a summary of findings with actionable recommendations.
+Context:
+- You may not have full repository context. If something is unclear, state assumptions
+  and ask targeted follow-up questions rather than guessing.
+- Do not invent repository policies, APIs, or files that are not visible in the diff.
+- Do not suggest large refactors unless necessary for security/stability.
 
-Rules:
-- Always prioritize security and stability in your assessments.
-- Use clear, concise language in your feedback.
-- Include references to relevant documentation or standards where applicable.
+What to look for (non-exhaustive):
+Security:
+- Injection: SQL/NoSQL/LDAP/command/template injection
+- AuthN/AuthZ: missing checks, privilege escalation, insecure direct object references
+- Data handling: secrets in code/logs, PII leakage, improper logging, weak encryption
+- Input validation: path traversal, SSRF, deserialization, file upload risks
+- Web risks: XSS, CSRF, CORS misconfig, open redirects, session/cookie flags
+- Dependency/config changes: vulnerable packages, unsafe defaults, debug enabled
+- Supply chain: scripts in CI, build steps, downloaded binaries, signature verification
 
-Variables:
-- git diff -
+Stability/Correctness:
+- Breaking changes: public API changes, schema/migration issues, config changes
+- Error handling: swallowed exceptions, wrong retries/timeouts, inconsistent behavior
+- Concurrency: races, deadlocks, shared mutable state, async misuse
+- Resource mgmt: leaks (files/sockets/db connections), unbounded memory growth
+- Backwards compatibility: wire formats, serialization changes, feature flags
+
+Maintainability/Quality:
+- Coding standards and readability, duplication, unclear naming, missing docs/comments
+- Test coverage: missing/weak tests for risky logic; suggest concrete tests
+- Observability: meaningful logs/metrics without leaking sensitive info
+
+How to respond:
+- Be concrete and reference specific files/lines/hunks from the diff when possible.
+- Prefer actionable recommendations: what to change and why.
+- If you propose a fix, show a minimal patch snippet (pseudo-diff is fine).
+- If you cite standards/docs, prefer widely accepted sources (e.g., OWASP ASVS, OWASP
+  Top 10, CWE). Do not fabricate links; if unsure, name the standard without a URL.
+
+Severity model:
+- Critical: likely exploitable security issue or data loss; should block merge
+- High: serious bug/security weakness; should be fixed before merge
+- Medium: important but not immediately dangerous; fix soon
+- Low: minor improvement; optional
+- Nit: style/readability; non-blocking
+
+Output format (Markdown):
+1) Executive Summary (2-5 bullets)
+2) Risk Table (Finding | Severity | Location | Impact | Recommendation)
+3) Detailed Findings
+   - Group by file, include hunk context and reasoning
+4) Suggested Patches (only for the highest-impact issues)
+5) Tests & Verification
+   - Specific tests to add/update
+   - How to validate (commands/checks conceptually; do not claim you ran anything)
+6) Breaking Changes / Migration Notes (if any)
+7) Questions / Missing Context (only if needed to proceed safely)
+
+PR Diff (git diff):
+```diff
 {pr_data['diffs']}
 """
+
         elif payload['operation'] == "test_checklist":
             prompt = f"""
-Act as a Senior Quality Assurance Engineer. 
-You are an expert in software testing. 
-Your task is to create a checklist of what to test before merging these code changes.
+Act as a Senior Quality Assurance Engineer. You are an expert at deriving *risk-based* test checklists from a git diff only.
 
-You will:
-- Analyze the code difference.
-- Provide a checklist of what to test before merging the code changes.
-
-Rules:
-- Always prioritize cases which are must to check for.
-- Use clear, concise language in the checklist you prepared.
-
-Variables:
-- git diff -
+Input (ONLY source of truth):
+- Git diff:
 {pr_data['diffs']}
-    """
+
+Your task:
+Generate a prioritized, actionable checklist of tests to run before merging this PR, based strictly on what changed in the diff.
+
+How to analyze (follow this order):
+1) Parse the diff and identify:
+   - Files changed (added/modified/deleted/renamed if visible).
+   - Key functions/classes/endpoints/configs touched (use names present in the diff).
+   - Data shape/contract changes (request/response fields, schemas, models, DTOs).
+   - Control-flow and behavior changes (conditionals, validation, error handling, retries).
+   - Non-functional risk indicators (auth/permissions, logging/metrics, caching, concurrency, performance, migrations).
+
+2) Infer impacted behaviors conservatively:
+   - If the user-facing intent is unclear from the diff, do NOT guess; instead produce “Open Questions”.
+
+Output requirements (Markdown):
+### 1) Change Summary (from diff)
+- Bullet list of the most important behavioral changes.
+- Reference file paths (and function/class names when present).
+
+### 2) Test Checklist (prioritized)
+Use priority tags:
+- P0 = must-test before merge (security, data integrity, breaking contract, core flows, high regression risk)
+- P1 = should-test (important edges, error paths, key regressions)
+- P2 = good-to-test (lower risk, polish, rare conditions)
+
+For EACH checklist item, use this exact structure:
+- [Px] <specific test to perform>
+  - Area: <API/UI/DB/Auth/Config/Job/Integration/Other>
+  - Why (risk): <brief risk statement tied to the change>
+  - Evidence: <file path + symbol/line context from diff that triggered this item>
+  - Expected: <clear expected result>
+
+Checklist content rules:
+- Be concrete and verifiable. Avoid generic items like “test everything”, “run all tests”, “ensure it works”.
+- Include at least:
+  - Happy-path tests for changed behavior
+  - Negative/invalid-input tests if validation/parsing changed
+  - Error-handling tests if exceptions/returns/logging changed
+  - Backward-compat/contract tests if data/API shapes changed
+  - Regression tests for adjacent functionality implied by the diff
+
+### 3) Open Questions (if any)
+- List any unknowns that prevent precise test design, explicitly stating what information is missing and why.
+
+Quality bar:
+- Prefer a shorter checklist of high-value tests over a long generic list.
+- Every item must trace back to something that actually changed in the diff (via “Evidence”).
+"""
+
         elif payload['operation'] == "explain":
             prompt = f"""
-Act as a Senior Software Engineer. 
-You are an expert in software development with ability to understand changes in code. 
-Your task is explain this code to an engineering manager who is not in touch with this codebase 
-by providing a summary of it in markdown format.
+You are a Senior Software Engineer reviewing a Pull Request.
 
-You will:
-- Provide summary in simple terms.
-- Analyze the code for what it is trying to do.
-- Explain breaking changes that could affect application functionality.
+Audience: an engineering manager who does not know this codebase.
+Goal: explain what changed and what it means for the product/runtime behavior.
+
+Input (git diff):
+{pr_data['diffs']}
+
+Write a SHORT Markdown summary with these sections:
+
+## Overview (1–3 bullets)
+- What this PR does in plain English (focus on user/system behavior).
+
+## Key Changes
+- Bullet list of the most important changes, grouped by file/module if helpful.
+- Mention new/removed functionality, API/contract changes, data flow changes, and noteworthy refactors.
+
+## Breaking / Risky Changes (if any)
+- Call out anything that could break runtime behavior, integrations, configs, deployments, DB/schema, or backwards compatibility.
+- If none are evident, explicitly say: "No breaking changes identified from the diff."
 
 Rules:
-- Always prioritize code functionality explanation.
-- Use clear, concise language in your explanation.
-
-Variables:
-- git diff -
-{pr_data['diffs']}
-    """
+- Prioritize explaining functionality and impact over implementation details.
+- Be concise; do not paste the diff or line-by-line commentary.
+- If something cannot be determined from the diff, state that clearly rather than guessing.
+"""
         if prompt:
             ai_response = run_codex(prompt)
             write_pr_ai_response(pr_id, {
@@ -152,38 +247,42 @@ def confluence_operation(payload: dict) -> str:
         if payload['operation'] == "explain":
             prompt = f"""
 ### Role
-Act as a Senior Technical Architect and Expert Technical Writer. You possess deep knowledge of Computer Science principles, Software Engineering patterns, and System Design.
+Act as a **Senior Technical Architect** and **Expert Technical Writer** with strong depth in:
+- Computer Science fundamentals (data structures, algorithms, complexity)
+- Software Engineering patterns (SOLID, DDD, CQRS, eventing, reliability)
+- System Design (scalability, consistency, observability, security)
 
-### Task
-Analyze the provided Atlassian Confluence document content. Your objective is to synthesize the information into a structured, high-fidelity technical briefing.
+### Objective
+You will be given raw **Atlassian Confluence document content**. Produce a **brief technical summary** in **Markdown**, after carefully analyzing the document end-to-end.
 
-### Constraints & Formatting
-1.  **Output Format:** Strict Markdown.
-2.  **Math & Logic:** Use LaTeX formatting (e.g., $O(n \log n)$) for any mathematical or algorithmic complexities found.
-3.  **Code:** Use standard code blocks for any snippets, configuration, or API definitions.
-4.  **Tone:** Professional, objective, and technically precise.
+### Method (mandatory)
+1. **Deeply analyze the full document first** (do not start writing until you have a coherent mental model).
+2. Identify: purpose, scope, key components/services, flows, decisions, constraints, dependencies, risks, and open questions.
+3. Prefer **explicit facts from the text**. If you must infer, label it clearly as *Inference* and only when strongly supported.
+4. If a requested item is absent, write **“Not specified”** (do not guess).
 
-### Output Structure
-Please structure your response exactly as follows:
+> Important: Do your reasoning privately. Output **only** the Markdown summary described below.
 
-1.  **Document Metadata:**
-    *   **Type:** (e.g., RFC, API Spec, Meeting Notes, Post-Mortem, Tutorial)
-    *   **Target Audience:** (e.g., Backend Devs, DevOps, Stakeholders)
+### Hard Constraints (must follow)
+- **Output must be valid Markdown only** (no HTML).
+- **Be concise**: maximum **150–200 words** total.
+- **No filler** (no preamble, no “In summary”, no meta commentary).
+- Avoid hallucinations; keep wording precise and checkable.
 
-2.  **Executive Summary:**
-    *   A single, high-density paragraph distilling the core purpose and conclusion of the document.
+### Output Format (Markdown; use exactly these headings)
+### Brief Summary
+- (3–6 bullets capturing the most important points)
 
-3.  **Core Technical Concepts:**
-    *   A bulleted list of the primary architectural or logic points.
+### Key Facts
+- (2–6 bullets; include names, numbers, endpoints, configs only if explicitly present; otherwise omit)
 
-4.  **Technical Specifications & Data:**
-    *   Extract specific technical details (Endpoints, Environment Variables, Database Tables, Algorithms).
-    *   *Note: If no specific specs are present, summarize the technical workflow.*
+### Risks / Gaps
+- (1–4 bullets; use “Not specified” where appropriate)
 
-5.  **Action Items / Decisions Made:**
-    *   What needs to be done? What was decided?
+### Open Questions
+- (1–4 bullets; only questions that a reader would need answered to implement/operate)
 
-### Input Variable
+### Input
 **Confluence Document Content:**
 {current_content}
 """
@@ -196,26 +295,83 @@ Please structure your response exactly as follows:
         elif payload['operation'] == "rewrite":
             prompt = f"""
 ### Role
-Act as a Senior Technical Writer and Atlassian Confluence Administrator. You are an expert in Computer Science documentation and Confluence Storage Format (XHTML).
+Act as a **Principal Software Architect + Technical Documentation Lead** with strong expertise in **Distributed Systems**, **Security**, **Performance Engineering**, and **Atlassian Confluence (Storage Format / XHTML)**.
 
-### Task
-Your task is to refactor, copy-edit, and improve the provided Confluence Storage Format content. You must improve the clarity and flow of the English text while strictly maintaining valid XML syntax.
+### Goal
+Transform the provided Confluence page content into a **single, coherent, non-redundant, technically rigorous** document that engineering teams can rely on.
+This is not a light copy-edit: you will **deduplicate**, **restructure**, and **selectively augment** the content.
 
-### Constraints & XML Integrity Rules
-1. **Format Preservation:** You are processing "Confluence Storage Format" (XHTML). You must strictly preserve all Atlassian namespaces (`ac:`, `ri:`) and macro structures.
-2. **Macro Safety:** Do NOT translate or alter the content inside code blocks (`ac:structured-macro ac:name="code"`) or strict technical parameters.
-3. **Valid XML:** The output must be a valid XML fragment that can be pasted directly into the Confluence source editor without rendering errors.
+---
 
-### Editing Guidelines
-1. **Executive Summary:** Insert a new `ac:structured-macro` of type "info" at the very top of the document. Inside this macro, write a concise, 3-bullet point executive summary of the content.
-2. **Language:** Rewrite the body text for "Technical English." Use active voice, concise sentence structures, and professional terminology suitable for Computer Science.
-3. **Formatting:** Ensure headers ($h1$ through $h6$) follow a logical hierarchy.
+## Phase 0 — Parse & Build a Mental Model (do NOT output this phase)
+1. Identify the page’s purpose, target audience, and implied system context.
+2. Extract a tentative outline (sections/subsections).
+3. Detect duplicated or near-duplicated information and decide a **single canonical location** for each concept.
 
-### Output Format
-Return ONLY the raw XHTML code. Do not provide conversational filler.
+---
 
-### Execution
-Rewrite the following content:
+## Phase 1 — Deduplication & Single-Source-of-Truth Refactor (CRITICAL)
+Your top priority is to remove repeated information while preserving meaning.
+
+### Dedup Rules
+1. **Collapse duplicates:** If two sections explain the same thing, keep the best-written/most complete version and delete the rest.
+2. **Merge partial overlaps:** If sections overlap but each contains unique details, merge into one canonical section.
+3. **Replace repetition with references:**
+   - When a concept must be mentioned in multiple places, keep one canonical explanation and elsewhere add a short pointer like:
+     “See <ac:link>…</ac:link>” (anchor-based).
+4. **Standardize terminology:** Use one term per concept (e.g., “Coordinator” vs “Leader”) and apply consistently across the document.
+5. **Centralize repeated definitions:** Move repeated definitions into a single “Definitions / Glossary” section and reference it from other sections.
+6. **Avoid repeated warnings/notes:** Keep one well-placed warning/note in the most relevant section; elsewhere reference it.
+
+### Anchor/Reference Guidance
+- Create stable anchors near canonical sections (e.g., `<ac:structured-macro ac:name="anchor"><ac:parameter ac:name="">rate-limiting</ac:parameter></ac:structured-macro>`).
+- Use `<ac:link>` to reference anchors instead of repeating paragraphs.
+
+---
+
+## Phase 2 — Technical Augmentation (only where genuinely helpful)
+Add value by filling gaps **without inventing unknown system specifics**.
+
+### Allowed Augmentations
+1. **Complexity Analysis:** When algorithms/data structures are present, add time/space complexity using Big-O (e.g., $O(n \log n)$).
+2. **Edge Cases & Concurrency:** Add a Confluence **Note** macro for edge cases, failure modes, race conditions, idempotency concerns.
+3. **Security & Performance:** Add a **Warning** macro for likely security risks (SQLi, XSS, SSRF, authz gaps), privacy concerns, and performance bottlenecks.
+4. **Why + Example:** If a concept is abstract, add a concrete example or a **Tip** macro explaining rationale and tradeoffs.
+
+### Uncertainty Handling (IMPORTANT)
+- If key details are missing and cannot be safely inferred, do **NOT** hallucinate.
+- Instead, insert a short **Warning** or **Info** macro labeled “Open Question / TODO” with the exact missing detail needed.
+
+---
+
+## Phase 3 — Rewrite, Restructure, and Improve Readability
+1. **Executive Summary (Top of Page):**
+   Insert an `ac:structured-macro ac:name="info"` containing a concise TL;DR (purpose, key architecture points, how to use/operate).
+2. **Engineering-Grade Language:**
+   Replace vague statements with precise technical claims (latency/throughput/correctness, failure handling, contracts).
+3. **Logical Heading Tree:**
+   Use `<h1>`…`<h6>` in a strict semantic hierarchy (no level skipping).
+4. **Reduce Noise:**
+   Remove redundant filler sentences and repeated “intro” lines per section.
+5. **Keep code blocks intact:**
+   Do not modify the internal content of existing `<ac:structured-macro ac:name="code">...</ac:structured-macro>` blocks.
+   You may add explanation **before/after** code blocks (inputs/outputs, assumptions, pitfalls).
+
+---
+
+## Output Constraints (ABSOLUTE)
+1. Output **ONLY** valid **Confluence Storage Format (XHTML)** — no Markdown fences, no commentary.
+2. Preserve Confluence namespaces/tags: `ac:*`, `ri:*`, and valid XHTML.
+3. Preserve existing links/macros unless you are removing duplicated sections; do not break references.
+4. When adding macros, use:
+   - `<ac:structured-macro ac:name="tip">` for best practices.
+   - `<ac:structured-macro ac:name="note">` for edge cases / operational gotchas.
+   - `<ac:structured-macro ac:name="warning">` for security/perf risks and TODOs requiring attention.
+   - `<ac:structured-macro ac:name="expand">` for deep dives that would clutter the main narrative.
+
+---
+
+### Input Confluence Content
 {current_content}
 """
         ai_response = run_codex(prompt)

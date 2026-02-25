@@ -90,7 +90,6 @@
             .custom-scrollbar {
                 scrollbar-width: thin;
                 scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
-                overscroll-behavior: contain; /* Prevents scroll chaining to body */
             }
             /* Webkit (Chrome/Safari/Edge) */
             .custom-scrollbar::-webkit-scrollbar {
@@ -98,13 +97,13 @@
                 height: 10px;
             }
             .custom-scrollbar::-webkit-scrollbar-track {
-                background: transparent;
-                margin-bottom: 12px;
+                background: transparent; /* Makes the track invisible so rounded corner shows */
+                margin-bottom: 12px;     /* Adds a little spacing from the bottom edge */
             }
             .custom-scrollbar::-webkit-scrollbar-thumb {
-                background-color: rgba(0, 0, 0, 0.2);
-                border-radius: 10px;
-                border: 2px solid transparent;
+                background-color: rgba(0, 0, 0, 0.2); /* Semi-transparent grey */
+                border-radius: 10px;       /* Rounded thumb */
+                border: 2px solid transparent; /* Creates padding around the thumb */
                 background-clip: content-box;
             }
             .custom-scrollbar::-webkit-scrollbar-thumb:hover {
@@ -152,15 +151,9 @@
         }
     }
 
-    // --- FIX APPLIED HERE ---
     function showModal({title, bodyHtml}) {
-        // 1. Prevent background scrolling to stop flicker/repaint issues
-        const originalOverflow = document.body.style.overflow;
-        document.body.style.overflow = "hidden";
-
         const modal = document.createElement("div");
 
-        // Added 'transform: translateZ(0)' to force GPU layer promotion
         modal.style.cssText = `
             position: fixed; inset: 0;
             background-color: rgba(30, 30, 30, 0);
@@ -171,7 +164,6 @@
             padding-top: 60px;
             box-sizing: border-box;
             animation: overlay-fade-in 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-            transform: translateZ(0);
         `;
 
         const modalContent = document.createElement("div");
@@ -187,7 +179,8 @@
             flex-direction: column;
             box-shadow: ${denseShadow};
             font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-            overflow: hidden;
+            overflow: hidden; /* Ensures children don't bleed over the rounded corners */
+
             animation: modal-slide-down 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
             opacity: 0;
             animation-delay: 0.1s;
@@ -209,17 +202,11 @@
         modal.appendChild(modalContent);
         document.body.appendChild(modal);
 
-        // Cleanup function to restore scroll and remove modal
-        const closeModal = () => {
-            document.body.style.overflow = originalOverflow; // Restore scroll
-            if (modal.parentNode) {
-                document.body.removeChild(modal);
-            }
-        };
-
-        modalContent.querySelector("#closeModal").addEventListener("click", closeModal);
+        modalContent.querySelector("#closeModal").addEventListener("click", () => {
+            document.body.removeChild(modal);
+        });
         modal.addEventListener("click", (e) => {
-            if (e.target === modal) closeModal();
+            if (e.target === modal) document.body.removeChild(modal);
         });
     }
 
@@ -370,7 +357,7 @@
     };
 
     async function triggerPrAction(btn, operation, loadingText) {
-        const url = "http://localhost:8000/confluence";
+        const url = "http://localhost:8000/pullrequest";
 
         const originalContent = btn.innerHTML;
         btn.disabled = true;
@@ -409,8 +396,9 @@
 
             let modalTitle = "Result";
             if (operation === 'delete') modalTitle = "Delete Result";
-            else if (operation === 'rewrite') modalTitle = "PR Review Result";
+            else if (operation === 'review') modalTitle = "PR Review Result";
             else if (operation === 'explain') modalTitle = "Explanation Result";
+            else if (operation === 'test_checklist') modalTitle = "Checklist Result";
 
             showProcessorModal(lastProcessorResult, modalTitle);
         } catch (err) {
@@ -466,6 +454,8 @@
         `;
 
         // --- BUTTON 1: EXPLAIN (INDIGO) ---
+        // Color: #6366f1 -> RGB: 99, 102, 241
+        // Shadow: Stronger opacity (0.6) and larger blur (24px)
         const explainButton = document.createElement("button");
         explainButton.textContent = "Explain";
         explainButton.style.cssText = `
@@ -494,9 +484,10 @@
 
 
         // --- BUTTON 2: REVIEW PR (EMERALD) ---
-        const rewriteButton = document.createElement("button");
-        rewriteButton.textContent = "Rewrite";
-        rewriteButton.style.cssText = `
+        // Color: #10b981 -> RGB: 16, 185, 129
+        const reviewPrButton = document.createElement("button");
+        reviewPrButton.textContent = "Review PR";
+        reviewPrButton.style.cssText = `
       padding: 10px 18px;
       background-color: #10b981;
       color: white;
@@ -510,19 +501,47 @@
       display: flex;
       align-items: center;
     `;
-        rewriteButton.addEventListener("mouseenter", () => {
-             rewriteButton.style.backgroundColor = "#059669"; // Emerald-600
-             rewriteButton.style.transform = "translateY(-1px)";
+        reviewPrButton.addEventListener("mouseenter", () => {
+             reviewPrButton.style.backgroundColor = "#059669"; // Emerald-600
+             reviewPrButton.style.transform = "translateY(-1px)";
         });
-        rewriteButton.addEventListener("mouseleave", () => {
-             rewriteButton.style.backgroundColor = "#10b981";
-             rewriteButton.style.transform = "translateY(0)";
+        reviewPrButton.addEventListener("mouseleave", () => {
+             reviewPrButton.style.backgroundColor = "#10b981";
+             reviewPrButton.style.transform = "translateY(0)";
         });
-        rewriteButton.addEventListener("click", () => triggerPrAction(rewriteButton, 'rewrite', 'ReWriting...'));
+        reviewPrButton.addEventListener("click", () => triggerPrAction(reviewPrButton, 'review', 'Reviewing...'));
 
+        // --- BUTTON 3: TEST CHECKLIST (ORANGE) ---
+        // Color: #f97316 -> RGB: 249, 115, 22
+        const checklistButton = document.createElement("button");
+        checklistButton.textContent = "Checklist";
+        checklistButton.style.cssText = `
+      padding: 10px 18px;
+      background-color: #f97316;
+      color: white;
+      border: none;
+      border-radius: 14px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 8px 24px 0 rgba(249, 115, 22, 0.6);
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+    `;
+        checklistButton.addEventListener("mouseenter", () => {
+             checklistButton.style.backgroundColor = "#ea580c"; // Orange-600
+             checklistButton.style.transform = "translateY(-1px)";
+        });
+        checklistButton.addEventListener("mouseleave", () => {
+             checklistButton.style.backgroundColor = "#f97316";
+             checklistButton.style.transform = "translateY(0)";
+        });
+        checklistButton.addEventListener("click", () => triggerPrAction(checklistButton, 'test_checklist', 'Preparing Checklist...'));
 
 
         // --- BUTTON 4: DELETE (ROSE RED) ---
+        // Color: #ef4444 -> RGB: 239, 68, 68
         const deleteButton = document.createElement("button");
         deleteButton.textContent = "Delete";
         deleteButton.style.cssText = `
@@ -551,6 +570,7 @@
 
 
         // --- BUTTON 5: API DATA (SLATE GRAY) ---
+        // Color: #4b5563 -> RGB: 75, 85, 99
         const apiButton = document.createElement("button");
         apiButton.textContent = "API Data";
         apiButton.style.cssText = `
@@ -576,7 +596,8 @@
         apiButton.addEventListener("click", showApiModal);
 
         wrapper.appendChild(explainButton);
-        wrapper.appendChild(rewriteButton);
+        wrapper.appendChild(reviewPrButton);
+        wrapper.appendChild(checklistButton);
         wrapper.appendChild(deleteButton);
         wrapper.appendChild(apiButton);
         document.body.appendChild(wrapper);

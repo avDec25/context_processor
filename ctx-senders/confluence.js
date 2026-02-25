@@ -5,6 +5,7 @@
     // --- Configuration for External Libraries ---
     const LIBS = {
         marked: "https://cdn.jsdelivr.net/npm/marked/marked.min.js",
+        dompurify: "https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js",
         css: "https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-light.min.css"
     };
 
@@ -17,24 +18,137 @@
         document.head.appendChild(link);
     }
 
-    function loadScript(src) {
+    // Robust script loader:
+    // - If script tag exists but is still loading, wait for it.
+    // - If it's already loaded, resolve immediately (via checker).
+    function loadScript(src, { checker, timeoutMs = 8000 } = {}) {
         return new Promise((resolve, reject) => {
-            if (document.querySelector(`script[src="${src}"]`)) {
-                return resolve(); // Already loaded
+            try {
+                if (checker && checker()) return resolve();
+
+                const existing = document.querySelector(`script[src="${src}"]`);
+                if (existing) {
+                    // If already available, resolve
+                    if (checker && checker()) return resolve();
+
+                    existing.addEventListener("load", () => resolve(), { once: true });
+                    existing.addEventListener("error", (e) => reject(e), { once: true });
+
+                    // Fallback polling if load event already fired (rare)
+                    const start = Date.now();
+                    const timer = setInterval(() => {
+                        if (checker && checker()) {
+                            clearInterval(timer);
+                            resolve();
+                        } else if (Date.now() - start > timeoutMs) {
+                            clearInterval(timer);
+                            reject(new Error("Timed out waiting for script to load: " + src));
+                        }
+                    }, 50);
+
+                    return;
+                }
+
+                const script = document.createElement("script");
+                script.src = src;
+                script.async = true;
+                script.onload = () => resolve();
+                script.onerror = (e) => reject(e);
+                document.head.appendChild(script);
+            } catch (e) {
+                reject(e);
             }
-            const script = document.createElement("script");
-            script.src = src;
-            script.onload = resolve;
-            script.onerror = reject;
-            document.head.appendChild(script);
         });
+    }
+
+    // --- Markdown deps (Explain modal only) ---
+    let explainDepsPromise = null;
+
+    function ensureExplainMarkdownDeps() {
+        loadCss(LIBS.css);
+
+        const hasMarked = () => !!(window.marked && typeof window.marked.parse === "function");
+        const hasPurify = () => !!(window.DOMPurify && typeof window.DOMPurify.sanitize === "function");
+
+        if (hasMarked() && hasPurify()) return Promise.resolve();
+
+        if (!explainDepsPromise) {
+            explainDepsPromise = Promise.all([
+                loadScript(LIBS.marked, { checker: hasMarked }),
+                loadScript(LIBS.dompurify, { checker: hasPurify })
+            ]).then(() => {
+                // Marked options (nice defaults for LLM responses)
+                if (window.marked?.setOptions) {
+                    window.marked.setOptions({
+                        gfm: true,
+                        breaks: true, // IMPORTANT: single newlines -> <br>
+                        headerIds: false,
+                        mangle: false
+                    });
+                }
+            });
+        }
+
+        return explainDepsPromise;
+    }
+
+    function escapeHtml(str) {
+        return String(str)
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+    }
+
+    function toAbsUrl(input) {
+        try {
+            const u = typeof input === "string" ? input : input?.url;
+            return new URL(u, window.location.href).toString();
+        } catch {
+            return String(input);
+        }
+    }
+
+    async function readBodySafe(response) {
+        const cloned = response.clone();
+        let text = "";
+        try {
+            text = await cloned.text();
+        } catch (e) {
+            return {
+                kind: "unreadable",
+                raw: "",
+                data: `[Body not readable in browser] ${e?.message || e}`
+            };
+        }
+
+        try {
+            return { kind: "json", raw: text, data: JSON.parse(text) };
+        } catch {
+            return { kind: "text", raw: text, data: text };
+        }
+    }
+
+    // Try to find markdown content inside typical JSON API shapes
+    function extractMarkdownCandidate(data) {
+        if (typeof data === "string") return data;
+        if (!data || typeof data !== "object") return null;
+
+        const keys = ["markdown", "md", "explanation", "content", "result", "message", "text", "output"];
+        for (const k of keys) {
+            if (typeof data[k] === "string") return data[k];
+        }
+
+        if (data.data != null) return extractMarkdownCandidate(data.data);
+        return null;
     }
 
     // Inject Global CSS (Spinner + Animations + Scrollbar Fix)
     function injectGlobalStyles() {
-        if (document.getElementById('injected-global-styles')) return;
-        const style = document.createElement('style');
-        style.id = 'injected-global-styles';
+        if (document.getElementById("injected-global-styles")) return;
+        const style = document.createElement("style");
+        style.id = "injected-global-styles";
         style.innerHTML = `
             @keyframes spin-rotate {
                 0% { transform: rotate(0deg); }
@@ -86,13 +200,11 @@
                 font-size: 14px;
             }
 
-            /* --- NEW: Custom Scrollbar to fix corner clipping --- */
             .custom-scrollbar {
                 scrollbar-width: thin;
                 scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
-                overscroll-behavior: contain; /* Prevents scroll chaining to body */
+                overscroll-behavior: contain;
             }
-            /* Webkit (Chrome/Safari/Edge) */
             .custom-scrollbar::-webkit-scrollbar {
                 width: 10px;
                 height: 10px;
@@ -114,53 +226,11 @@
         document.head.appendChild(style);
     }
 
-    function toAbsUrl(input) {
-        try {
-            const u = typeof input === "string" ? input : input?.url;
-            return new URL(u, window.location.href).toString();
-        } catch {
-            return String(input);
-        }
-    }
-
-    function escapeHtml(str) {
-        return String(str)
-            .replaceAll("&", "&amp;")
-            .replaceAll("<", "&lt;")
-            .replaceAll(">", "&gt;")
-            .replaceAll('"', "&quot;")
-            .replaceAll("'", "&#039;");
-    }
-
-    async function readBodySafe(response) {
-        const cloned = response.clone();
-        let text = "";
-        try {
-            text = await cloned.text();
-        } catch (e) {
-            return {
-                kind: "unreadable",
-                raw: "",
-                data: `[Body not readable in browser] ${e?.message || e}`,
-            };
-        }
-
-        try {
-            return {kind: "json", raw: text, data: JSON.parse(text)};
-        } catch {
-            return {kind: "text", raw: text, data: text};
-        }
-    }
-
-    // --- FIX APPLIED HERE ---
-    function showModal({title, bodyHtml}) {
-        // 1. Prevent background scrolling to stop flicker/repaint issues
+    function showModal({ title, bodyHtml }) {
         const originalOverflow = document.body.style.overflow;
         document.body.style.overflow = "hidden";
 
         const modal = document.createElement("div");
-
-        // Added 'transform: translateZ(0)' to force GPU layer promotion
         modal.style.cssText = `
             position: fixed; inset: 0;
             background-color: rgba(30, 30, 30, 0);
@@ -171,7 +241,7 @@
             padding-top: 60px;
             box-sizing: border-box;
             animation: overlay-fade-in 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-            transform: translateZ(0); 
+            transform: translateZ(0);
         `;
 
         const modalContent = document.createElement("div");
@@ -187,34 +257,31 @@
             flex-direction: column;
             box-shadow: ${denseShadow};
             font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-            overflow: hidden; 
+            overflow: hidden;
             animation: modal-slide-down 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
             opacity: 0;
             animation-delay: 0.1s;
         `;
 
         modalContent.innerHTML = `
-      <div style="padding: 16px 24px; border-bottom: 1px solid #eee; display:flex; align-items:center; justify-content:space-between; flex-shrink: 0; background: white;">
-        <h2 style="margin:0; font-size: 18px; font-weight: 700; color: #333;">${escapeHtml(title)}</h2>
-        <button id="closeModal"
-          style="padding:6px 12px; background:#ef4444; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:600; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
-          Close
-        </button>
-      </div>
-      <div class="custom-scrollbar" style="overflow-y: auto; padding: 24px; flex-grow: 1;">
-        ${bodyHtml}
-      </div>
-    `;
+            <div style="padding: 16px 24px; border-bottom: 1px solid #eee; display:flex; align-items:center; justify-content:space-between; flex-shrink: 0; background: white;">
+                <h2 style="margin:0; font-size: 18px; font-weight: 700; color: #333;">${escapeHtml(title)}</h2>
+                <button id="closeModal"
+                    style="padding:6px 12px; background:#ef4444; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:600; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                    Close
+                </button>
+            </div>
+            <div class="custom-scrollbar" style="overflow-y: auto; padding: 24px; flex-grow: 1;">
+                ${bodyHtml}
+            </div>
+        `;
 
         modal.appendChild(modalContent);
         document.body.appendChild(modal);
 
-        // Cleanup function to restore scroll and remove modal
         const closeModal = () => {
-            document.body.style.overflow = originalOverflow; // Restore scroll
-            if (modal.parentNode) {
-                document.body.removeChild(modal);
-            }
+            document.body.style.overflow = originalOverflow;
+            if (modal.parentNode) document.body.removeChild(modal);
         };
 
         modalContent.querySelector("#closeModal").addEventListener("click", closeModal);
@@ -237,78 +304,95 @@
 
             for (const [, response] of sorted) {
                 const pretty =
-                    typeof response.data === "string"
-                        ? response.data
-                        : JSON.stringify(response.data, null, 2);
+                    typeof response.data === "string" ? response.data : JSON.stringify(response.data, null, 2);
 
                 html += `
-              <div style="margin-top:14px; padding:12px; border:1px solid #e5e7eb; border-radius:12px;">
-                <div><strong>URL:</strong> ${escapeHtml(response.url)}</div>
-                <div><strong>Type:</strong> ${escapeHtml(response.type)}</div>
-                <div><strong>Time:</strong> ${response.timestamp?.toLocaleString?.() ?? "-"}</div>
-                <div><strong>Status:</strong> ${response.status ?? "-"}</div>
-                <div style="margin-top:8px;"><strong>Data:</strong></div>
-                <pre style="background:#f9fafb; border:1px solid #eee; padding:10px; border-radius:8px; overflow:auto; max-height:240px; margin:6px 0 0; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(pretty)}</pre>
-              </div>
-            `;
+                    <div style="margin-top:14px; padding:12px; border:1px solid #e5e7eb; border-radius:12px;">
+                        <div><strong>URL:</strong> ${escapeHtml(response.url)}</div>
+                        <div><strong>Type:</strong> ${escapeHtml(response.type)}</div>
+                        <div><strong>Time:</strong> ${response.timestamp?.toLocaleString?.() ?? "-"}</div>
+                        <div><strong>Status:</strong> ${response.status ?? "-"}</div>
+                        <div style="margin-top:8px;"><strong>Data:</strong></div>
+                        <pre style="background:#f9fafb; border:1px solid #eee; padding:10px; border-radius:8px; overflow:auto; max-height:240px; margin:6px 0 0; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(pretty)}</pre>
+                    </div>
+                `;
             }
         }
-        showModal({title: "Captured API Responses", bodyHtml: html});
+
+        showModal({ title: "Captured API Responses", bodyHtml: html });
     }
 
+    /**
+     * For Explain modal:
+     * - Markdown -> HTML via marked
+     * - Sanitize via DOMPurify
+     * - Insert sanitized HTML into .markdown-body
+     * - DO NOT wrap in <pre> unless markdown itself produces it (code fences)
+     */
+    function renderExplainMarkdownToSafeHtml(markdownInput) {
+        const hasMarked = !!(window.marked && typeof window.marked.parse === "function");
+        const hasPurify = !!(window.DOMPurify && typeof window.DOMPurify.sanitize === "function");
 
-    function showProcessorModal(result, title = "Operation Result") {
+        // If we cannot sanitize, do not render HTML (avoid XSS); show escaped text with preserved newlines.
+        if (!hasMarked || !hasPurify) {
+            return `<div style="white-space: pre-wrap;">${escapeHtml(markdownInput)}</div>`;
+        }
+
+        const rawHtml = window.marked.parse(markdownInput);
+        const safeHtml = window.DOMPurify.sanitize(rawHtml);
+        return safeHtml; // may contain <pre> only if markdown had code blocks
+    }
+
+    function showProcessorModal(result, title = "Operation Result", opts = {}) {
         if (!result) {
-            showModal({
-                title: title,
-                bodyHtml: `<p style="margin:0;">No response yet.</p>`,
-            });
+            showModal({ title, bodyHtml: `<p style="margin:0;">No response yet.</p>` });
             return;
         }
 
         const meta = `
-      <div style="display:grid; gap:6px; color:#111827; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px dashed #e5e7eb;">
-        <div><strong>URL:</strong> ${escapeHtml(result.url)}</div>
-        <div><strong>Time:</strong> ${result.timestamp.toLocaleString()}</div>
-        ${
-            result.error
-                ? `<div><strong>Status:</strong> <span style="color:#b91c1c;">Error</span></div>`
-                : `<div><strong>Status:</strong> ${result.status} (${result.ok ? "OK" : "Not OK"})</div>`
-        }
-      </div>
-    `;
-
-        let body = "";
-
-        if (result.error != null) {
-            body = `<pre style="background:#fef2f2; border:1px solid #fecaca; padding:10px; border-radius:12px; overflow:auto; max-height:320px; margin:12px 0 0; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(result.error)}</pre>`;
-        } else {
-            // --- MARKDOWN RENDERING LOGIC ---
-            let contentToRender = "";
-
-            if (typeof result.data === "string") {
-                contentToRender = result.data;
-            } else {
-                contentToRender = "```json\n" + JSON.stringify(result.data, null, 2) + "\n```";
-            }
-
-            let renderedHtml = "";
-            if (window.marked && typeof window.marked.parse === 'function') {
-                try {
-                    renderedHtml = window.marked.parse(contentToRender);
-                } catch (e) {
-                    renderedHtml = `<p style="color:red">Error rendering markdown: ${e.message}</p><pre>${escapeHtml(contentToRender)}</pre>`;
+            <div style="display:grid; gap:6px; color:#111827; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px dashed #e5e7eb;">
+                <div><strong>URL:</strong> ${escapeHtml(result.url)}</div>
+                <div><strong>Time:</strong> ${result.timestamp.toLocaleString()}</div>
+                ${
+                    result.error
+                        ? `<div><strong>Status:</strong> <span style="color:#b91c1c;">Error</span></div>`
+                        : `<div><strong>Status:</strong> ${result.status} (${result.ok ? "OK" : "Not OK"})</div>`
                 }
-            } else {
-                renderedHtml = `<pre>${escapeHtml(contentToRender)}</pre>`;
-            }
+            </div>
+        `;
 
-            body = `<div class="markdown-body">${renderedHtml}</div>`;
+        // Error case
+        if (result.error != null) {
+            const body = `<pre style="background:#fef2f2; border:1px solid #fecaca; padding:10px; border-radius:12px; overflow:auto; max-height:320px; margin:12px 0 0; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(result.error)}</pre>`;
+            showModal({ title, bodyHtml: meta + body });
+            return;
         }
 
-        showModal({title: title, bodyHtml: meta + body});
+        // Explain-only behavior
+        if (opts.explainMarkdownMode) {
+            const mdCandidate = extractMarkdownCandidate(result.data);
+
+            // If it's not a string, render JSON as a markdown code fence
+            // (this will generate <pre> only via markdown, which is "required by markdown").
+            const markdownInput =
+                mdCandidate != null ? mdCandidate : "```json\n" + JSON.stringify(result.data, null, 2) + "\n```";
+
+            const safeHtml = renderExplainMarkdownToSafeHtml(markdownInput);
+            const body = `<div class="markdown-body">${safeHtml}</div>`;
+            showModal({ title, bodyHtml: meta + body });
+            return;
+        }
+
+        // Default behavior for other modals (Rewrite/Delete/etc.)
+        // Keep it simple + safe: show string as escaped <pre>, and JSON as escaped <pre>.
+        const pretty =
+            typeof result.data === "string" ? result.data : JSON.stringify(result.data, null, 2);
+
+        const body = `<pre style="background:#f9fafb; border:1px solid #eee; padding:10px; border-radius:12px; overflow:auto; max-height:420px; margin:12px 0 0; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(pretty)}</pre>`;
+        showModal({ title, bodyHtml: meta + body });
     }
 
+    // --- Capture fetch/XHR ---
     const originalFetch = window.fetch;
     window.fetch = async function (...args) {
         const url = toAbsUrl(args[0]);
@@ -322,7 +406,7 @@
                         data: body.data,
                         timestamp: new Date(),
                         type: "fetch",
-                        status: response.status,
+                        status: response.status
                     });
                 } catch (e) {
                     apiResponses.set(url, {
@@ -330,7 +414,7 @@
                         data: `[capture error] ${e?.message || e}`,
                         timestamp: new Date(),
                         type: "fetch-capture-error",
-                        status: response.status,
+                        status: response.status
                     });
                 }
             })();
@@ -340,7 +424,7 @@
                 url,
                 data: `[fetch error] ${e?.message || e}`,
                 timestamp: new Date(),
-                type: "fetch-error",
+                type: "fetch-error"
             });
             throw e;
         }
@@ -348,22 +432,26 @@
 
     const originalXHROpen = XMLHttpRequest.prototype.open;
     const originalXHRSend = XMLHttpRequest.prototype.send;
+
     XMLHttpRequest.prototype.open = function (method, url) {
         this._url = toAbsUrl(url);
         return originalXHROpen.apply(this, arguments);
     };
+
     XMLHttpRequest.prototype.send = function () {
         this.addEventListener("load", function () {
             const url = this._url || "(unknown)";
             const text = this.responseText;
             let data = text;
-            try { data = JSON.parse(text); } catch {}
+            try {
+                data = JSON.parse(text);
+            } catch {}
             apiResponses.set(url, {
                 url,
                 data,
                 timestamp: new Date(),
                 type: "xhr",
-                status: this.status,
+                status: this.status
             });
         });
         return originalXHRSend.apply(this, arguments);
@@ -382,12 +470,12 @@
             const pageUrl = new URL(window.location.href);
             const res = await originalFetch(url, {
                 method: "POST",
-                headers: {"Content-Type": "application/json"},
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    operation: operation,
+                    operation,
                     hostname: pageUrl.hostname,
                     pathname: pageUrl.pathname
-                }),
+                })
             });
 
             const body = await readBodySafe(res);
@@ -396,7 +484,7 @@
                 data: body.data,
                 ok: res.ok,
                 status: res.status,
-                timestamp: new Date(),
+                timestamp: new Date()
             };
 
             apiResponses.set(url, {
@@ -404,27 +492,36 @@
                 data: body.data,
                 timestamp: new Date(),
                 type: `${operation}(fetch)`,
-                status: res.status,
+                status: res.status
             });
 
             let modalTitle = "Result";
-            if (operation === 'delete') modalTitle = "Delete Result";
-            else if (operation === 'rewrite') modalTitle = "PR Review Result";
-            else if (operation === 'explain') modalTitle = "Explanation Result";
+            if (operation === "delete") modalTitle = "Delete Result";
+            else if (operation === "rewrite") modalTitle = "PR Review Result";
+            else if (operation === "explain") modalTitle = "Explanation Result";
 
-            showProcessorModal(lastProcessorResult, modalTitle);
+            // Only Explain: ensure marked + DOMPurify are available, then render markdown safely.
+            if (operation === "explain") {
+                await ensureExplainMarkdownDeps().catch(() => {
+                    // fallback is handled in renderExplainMarkdownToSafeHtml()
+                });
+            }
+
+            showProcessorModal(lastProcessorResult, modalTitle, {
+                explainMarkdownMode: operation === "explain"
+            });
         } catch (err) {
             lastProcessorResult = {
                 url,
                 error: String(err?.message || err),
-                timestamp: new Date(),
+                timestamp: new Date()
             };
 
             apiResponses.set(url, {
                 url,
                 data: lastProcessorResult.error,
                 timestamp: new Date(),
-                type: `${operation}(fetch-error)`,
+                type: `${operation}(fetch-error)`
             });
 
             showProcessorModal(lastProcessorResult, "Operation Error");
@@ -437,136 +534,133 @@
     }
 
     function initButtons() {
-        // 1. Load External Libraries for Markdown
-        loadCss(LIBS.css);
-        loadScript(LIBS.marked).catch(e => console.error("Failed to load Marked.js", e));
-
-        // 2. Inject CSS
         injectGlobalStyles();
 
+        // Optional: prefetch deps (best-effort). Explain still works if this fails; it will retry on click.
+        ensureExplainMarkdownDeps().catch(() => {});
+
         const wrapper = document.createElement("div");
-
         wrapper.style.cssText = `
-          position: fixed;
-          bottom: 45px;
-          right: 20px;
-          z-index: 999999;
-          display: flex;
-          gap: 12px;
-          align-items: center;
-
-          /* Glass Panel Styles */
-          padding: 12px 16px;
-          background: rgba(255, 255, 255, 0.25);
-          backdrop-filter: blur(5px);
-          -webkit-backdrop-filter: blur(5px);
-          border-radius: 20px;
-          border: 2px solid rgba(255, 255, 255, 0.4);
-          box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15);
+            position: fixed;
+            bottom: 45px;
+            right: 20px;
+            z-index: 999999;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.25);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            border-radius: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15);
         `;
 
         // --- BUTTON 1: EXPLAIN (INDIGO) ---
         const explainButton = document.createElement("button");
         explainButton.textContent = "Explain";
         explainButton.style.cssText = `
-      padding: 10px 18px;
-      background-color: #6366f1;
-      color: white;
-      border: none;
-      border-radius: 14px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-      box-shadow: 0 8px 24px 0 rgba(99, 102, 241, 0.6);
-      transition: all 0.15s ease;
-      display: flex;
-      align-items: center;
-    `;
+            padding: 10px 18px;
+            background-color: #6366f1;
+            color: white;
+            border: none;
+            border-radius: 14px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 8px 24px 0 rgba(99, 102, 241, 0.6);
+            transition: all 0.15s ease;
+            display: flex;
+            align-items: center;
+        `;
         explainButton.addEventListener("mouseenter", () => {
-             explainButton.style.backgroundColor = "#4f46e5"; // Indigo-600
-             explainButton.style.transform = "translateY(-1px)";
+            explainButton.style.backgroundColor = "#4f46e5";
+            explainButton.style.transform = "translateY(-1px)";
         });
         explainButton.addEventListener("mouseleave", () => {
-             explainButton.style.backgroundColor = "#6366f1";
-             explainButton.style.transform = "translateY(0)";
+            explainButton.style.backgroundColor = "#6366f1";
+            explainButton.style.transform = "translateY(0)";
         });
-        explainButton.addEventListener("click", () => triggerPrAction(explainButton, 'explain', 'Explaining...'));
+        explainButton.addEventListener("click", () =>
+            triggerPrAction(explainButton, "explain", "Explaining...")
+        );
 
-
-        // --- BUTTON 2: REVIEW PR (EMERALD) ---
+        // --- BUTTON 2: REWRITE (EMERALD) ---
         const rewriteButton = document.createElement("button");
         rewriteButton.textContent = "Rewrite";
         rewriteButton.style.cssText = `
-      padding: 10px 18px;
-      background-color: #10b981;
-      color: white;
-      border: none;
-      border-radius: 14px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-      box-shadow: 0 8px 24px 0 rgba(16, 185, 129, 0.6);
-      transition: all 0.15s ease;
-      display: flex;
-      align-items: center;
-    `;
+            padding: 10px 18px;
+            background-color: #10b981;
+            color: white;
+            border: none;
+            border-radius: 14px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 8px 24px 0 rgba(16, 185, 129, 0.6);
+            transition: all 0.15s ease;
+            display: flex;
+            align-items: center;
+        `;
         rewriteButton.addEventListener("mouseenter", () => {
-             rewriteButton.style.backgroundColor = "#059669"; // Emerald-600
-             rewriteButton.style.transform = "translateY(-1px)";
+            rewriteButton.style.backgroundColor = "#059669";
+            rewriteButton.style.transform = "translateY(-1px)";
         });
         rewriteButton.addEventListener("mouseleave", () => {
-             rewriteButton.style.backgroundColor = "#10b981";
-             rewriteButton.style.transform = "translateY(0)";
+            rewriteButton.style.backgroundColor = "#10b981";
+            rewriteButton.style.transform = "translateY(0)";
         });
-        rewriteButton.addEventListener("click", () => triggerPrAction(rewriteButton, 'rewrite', 'ReWriting...'));
+        rewriteButton.addEventListener("click", () =>
+            triggerPrAction(rewriteButton, "rewrite", "ReWriting...")
+        );
 
-
-
-        // --- BUTTON 4: DELETE (ROSE RED) ---
+        // --- BUTTON 3: DELETE (RED) ---
         const deleteButton = document.createElement("button");
         deleteButton.textContent = "Delete";
         deleteButton.style.cssText = `
-      padding: 10px 18px;
-      background-color: #ef4444;
-      color: white;
-      border: none;
-      border-radius: 14px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-      box-shadow: 0 8px 24px 0 rgba(239, 68, 68, 0.6);
-      transition: all 0.15s ease;
-      display: flex;
-      align-items: center;
-    `;
+            padding: 10px 18px;
+            background-color: #ef4444;
+            color: white;
+            border: none;
+            border-radius: 14px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 8px 24px 0 rgba(239, 68, 68, 0.6);
+            transition: all 0.15s ease;
+            display: flex;
+            align-items: center;
+        `;
         deleteButton.addEventListener("mouseenter", () => {
-             deleteButton.style.backgroundColor = "#dc2626"; // Red-600
-             deleteButton.style.transform = "translateY(-1px)";
+            deleteButton.style.backgroundColor = "#dc2626";
+            deleteButton.style.transform = "translateY(-1px)";
         });
         deleteButton.addEventListener("mouseleave", () => {
-             deleteButton.style.backgroundColor = "#ef4444";
-             deleteButton.style.transform = "translateY(0)";
+            deleteButton.style.backgroundColor = "#ef4444";
+            deleteButton.style.transform = "translateY(0)";
         });
-        deleteButton.addEventListener("click", () => triggerPrAction(deleteButton, 'delete', 'Deleting...'));
+        deleteButton.addEventListener("click", () =>
+            triggerPrAction(deleteButton, "delete", "Deleting...")
+        );
 
-
-        // --- BUTTON 5: API DATA (SLATE GRAY) ---
+        // --- BUTTON 4: API DATA (GRAY) ---
         const apiButton = document.createElement("button");
         apiButton.textContent = "API Data";
         apiButton.style.cssText = `
-      padding: 10px 18px;
-      background-color: #4b5563;
-      color: white;
-      border: none;
-      border-radius: 14px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-      box-shadow: 0 8px 24px 0 rgba(75, 85, 99, 0.6);
-      transition: all 0.15s ease;
-    `;
+            padding: 10px 18px;
+            background-color: #4b5563;
+            color: white;
+            border: none;
+            border-radius: 14px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 8px 24px 0 rgba(75, 85, 99, 0.6);
+            transition: all 0.15s ease;
+        `;
         apiButton.addEventListener("mouseenter", () => {
-            apiButton.style.backgroundColor = "#374151"; // Gray-700
+            apiButton.style.backgroundColor = "#374151";
             apiButton.style.transform = "translateY(-1px)";
         });
         apiButton.addEventListener("mouseleave", () => {
