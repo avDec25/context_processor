@@ -1,0 +1,12 @@
+# FastAPI and web framework dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# HTTP requests
+requests>=2.31.0
+
+# PostgreSQL database
+psycopg2-binary>=2.9.9
+
+# CORS middleware (included with FastAPI)
+# Add any other dependencies your project uses
