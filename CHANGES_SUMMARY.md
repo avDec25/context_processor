@@ -135,7 +135,7 @@ Expected output:
 
 Copy `.env.example` to `.env` and update if needed:
 ```bash
-cp .env.example .env
+cp .env.local.conf .env
 # Edit .env with your database credentials
 ```
 

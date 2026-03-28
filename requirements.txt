@@ -8,5 +8,8 @@ requests>=2.31.0
 # PostgreSQL database
 psycopg2-binary>=2.9.9
 
+# Environment variable management
+python-dotenv>=1.0.0
+
 # CORS middleware (included with FastAPI)
 # Add any other dependencies your project uses

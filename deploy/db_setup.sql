@@ -35,10 +35,12 @@ Review ONLY the changes shown in the provided git diff. Your priorities are:
 4) Performance (only when meaningful or clearly impacted)
 
 Context:
-- You may not have full repository context. If something is unclear, state assumptions
-  and ask targeted follow-up questions rather than guessing.
+- You have limited repository context. The diff includes {context_lines} lines of surrounding
+  code around each change to help understand the context.
+- If something is unclear, state assumptions and ask targeted follow-up questions rather than guessing.
 - Do not invent repository policies, APIs, or files that are not visible in the diff.
 - Do not suggest large refactors unless necessary for security/stability.
+- If the diff is truncated, focus on what is visible and note any areas that need full review.
 
 What to look for (non-exhaustive):
 Security:
@@ -88,9 +90,16 @@ Output format (Markdown):
 6) Breaking Changes / Migration Notes (if any)
 7) Questions / Missing Context (only if needed to proceed safely)
 
+PR Context:
+- From commit: {from_hash}
+- To commit: {to_hash}
+- Context lines: {context_lines} (surrounding code lines visible around each change)
+{truncated_warning}
+
 PR Diff (git diff):
 ```diff
-{pr_data}',
+{pr_data}
+```',
 'Pull request code review prompt with security and quality focus')
 
 ON CONFLICT (key)
@@ -104,7 +113,13 @@ INSERT INTO prompts (key, prompt_text, description) VALUES
 'Act as a Senior Quality Assurance Engineer. You are an expert at deriving *risk-based* test checklists from a git diff only.
 
 Input (ONLY source of truth):
-- Git diff:
+PR Context:
+- From commit: {from_hash}
+- To commit: {to_hash}
+- Context lines: {context_lines} (surrounding code lines visible around each change)
+{truncated_warning}
+
+Git diff:
 {pr_data}
 
 Your task:
@@ -168,6 +183,12 @@ INSERT INTO prompts (key, prompt_text, description) VALUES
 
 Audience: an engineering manager who does not know this codebase.
 Goal: explain what changed and what it means for the product/runtime behavior.
+
+PR Context:
+- From commit: {from_hash}
+- To commit: {to_hash}
+- Context lines: {context_lines} (surrounding code lines visible around each change)
+{truncated_warning}
 
 Input (git diff):
 {pr_data}

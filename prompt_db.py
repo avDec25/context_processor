@@ -5,9 +5,15 @@ Provides connection pooling and async prompt retrieval.
 import os
 import asyncio
 from typing import Optional
+from pathlib import Path
 import psycopg2
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
+from dotenv import load_dotenv
+
+# Load environment variables from .env.local.conf
+env_path = Path(__file__).parent / '.env.local.conf'
+load_dotenv(dotenv_path=env_path)
 
 # Database configuration
 DB_CONFIG = {

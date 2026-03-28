@@ -1,15 +1,22 @@
 import subprocess
 import requests
+import os
+from pathlib import Path
 from pr_manager import read_pr_ai_response, write_pr_ai_response, delete_pr_ai_response
 from confluence_manager import read_confluence_ai_response, write_confluence_ai_response, delete_confluence_ai_response
 import json
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from prompt_db import get_prompt_with_data
+from dotenv import load_dotenv
 
-BITBUCKET_TOKEN = "REDACTED"
-CONFLUENCE_URL = "https://confluence.rakuten-it.com/confluence"
-PERSONAL_ACCESS_TOKEN = "REDACTED"
+# Load environment variables from .env.local.conf
+env_path = Path(__file__).parent / '.env.local.conf'
+load_dotenv(dotenv_path=env_path)
+
+BITBUCKET_TOKEN = os.getenv("BITBUCKET_TOKEN", "")
+CONFLUENCE_URL = os.getenv("CONFLUENCE_URL", "https://confluence.rakuten-it.com/confluence")
+PERSONAL_ACCESS_TOKEN = os.getenv("PERSONAL_ACCESS_TOKEN", "")
 headers = {
     "Authorization": f"Bearer {PERSONAL_ACCESS_TOKEN}",
     "Accept": "application/json",
@@ -34,7 +41,13 @@ async def run_codex(prompt: str):
 
 
 async def pull_request_data(hostname, pathname):
+    # Replace /overview with /diff to get the actual diff content
+    if pathname.endswith('/overview'):
+        pathname = pathname.replace('/overview', '/diff')
+
     url = f"https://{hostname}/rest/api/latest{pathname}"
+    print(f"Fetching PR data from: {url}")
+
     loop = asyncio.get_event_loop()
     # Run the blocking HTTP request in a thread pool executor
     response = await loop.run_in_executor(
@@ -44,6 +57,14 @@ async def pull_request_data(hostname, pathname):
             "Accept": "application/json"
         })
     )
+
+    # Check for errors
+    if response.status_code != 200:
+        return {
+            'message': f'Error fetching PR data: {response.text}',
+            'status-code': response.status_code
+        }
+
     return response.json()
 
 
@@ -69,16 +90,46 @@ async def pull_request_operation(payload: dict) -> str:
             return response[operation]
 
         pr_data = await pull_request_data(payload['hostname'], payload['pathname'])
-        print(pr_data)
+        print(f"PR Data keys: {pr_data.keys()}")
+
+        # Extract diff content and metadata
+        diff_content = pr_data.get('diffs') or pr_data.get('diff') or str(pr_data)
+        from_hash = pr_data.get('fromHash', 'unknown')
+        to_hash = pr_data.get('toHash', 'unknown')
+        context_lines = pr_data.get('contextLines', 'default')
+        is_truncated = pr_data.get('truncated', False)
+        truncated_warning = "- ⚠️ WARNING: Diff is truncated! Full changes not visible." if is_truncated else ""
+
         prompt = None
         if payload['operation'] == "review":
-            prompt = await get_prompt_with_data('pr_review', pr_data=pr_data['diffs'])
+            prompt = await get_prompt_with_data(
+                'pr_review',
+                pr_data=diff_content,
+                from_hash=from_hash,
+                to_hash=to_hash,
+                context_lines=context_lines,
+                truncated_warning=truncated_warning
+            )
 
         elif payload['operation'] == "test_checklist":
-            prompt = await get_prompt_with_data('pr_test_checklist', pr_data=pr_data['diffs'])
+            prompt = await get_prompt_with_data(
+                'pr_test_checklist',
+                pr_data=diff_content,
+                from_hash=from_hash,
+                to_hash=to_hash,
+                context_lines=context_lines,
+                truncated_warning=truncated_warning
+            )
 
         elif payload['operation'] == "explain":
-            prompt = await get_prompt_with_data('pr_explain', pr_data=pr_data['diffs'])
+            prompt = await get_prompt_with_data(
+                'pr_explain',
+                pr_data=diff_content,
+                from_hash=from_hash,
+                to_hash=to_hash,
+                context_lines=context_lines,
+                truncated_warning=truncated_warning
+            )
         if prompt:
             ai_response = await run_codex(prompt)
             write_pr_ai_response(pr_id, {

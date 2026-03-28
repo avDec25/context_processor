@@ -1,13 +1,20 @@
 import psycopg2
 import json
+import os
+from pathlib import Path
 from psycopg2.extras import Json
+from dotenv import load_dotenv
+
+# Load environment variables from .env.local.conf
+env_path = Path(__file__).parent / '.env.local.conf'
+load_dotenv(dotenv_path=env_path)
 
 DB_CONFIG = {
-    "dbname": "context_processor",
-    "user": "admin",
-    "password": "securepassword",
-    "host": "localhost",
-    "port": "5432"
+    "dbname": os.getenv("DB_NAME", "context_processor"),
+    "user": os.getenv("DB_USER", "admin"),
+    "password": os.getenv("DB_PASSWORD", "securepassword"),
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": os.getenv("DB_PORT", "5432")
 }
 
 

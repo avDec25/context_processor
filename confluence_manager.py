@@ -1,21 +1,28 @@
 import requests
 import psycopg2
 import json
+import os
+from pathlib import Path
 from psycopg2.extras import Json
+from dotenv import load_dotenv
+
+# Load environment variables from .env.local.conf
+env_path = Path(__file__).parent / '.env.local.conf'
+load_dotenv(dotenv_path=env_path)
 
 # --- Configuration ---
 DB_CONFIG = {
-    "dbname": "context_processor",
-    "user": "admin",
-    "password": "securepassword",
-    "host": "localhost",
-    "port": "5432"
+    "dbname": os.getenv("DB_NAME", "context_processor"),
+    "user": os.getenv("DB_USER", "admin"),
+    "password": os.getenv("DB_PASSWORD", "securepassword"),
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": os.getenv("DB_PORT", "5432")
 }
 
 # https://confluence.rakuten-it.com/confluence/spaces/IBH/pages/6420926933/2.+Investigation+-+Genre+History+Upgrade+and+SyncBatch+Abolishment
-confluence_url = "https://confluence.rakuten-it.com/confluence"
-page_id = "6420926933"
-personal_access_token = "REDACTED"
+confluence_url = os.getenv("CONFLUENCE_URL", "https://confluence.rakuten-it.com/confluence")
+page_id = os.getenv("CONFLUENCE_PAGE_ID", "6420926933")
+personal_access_token = os.getenv("PERSONAL_ACCESS_TOKEN", "")
 api_url = f"{confluence_url}/rest/api/content/{page_id}?expand=body.storage"
 headers = {
     "Authorization": f"Bearer {personal_access_token}",
