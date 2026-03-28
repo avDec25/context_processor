@@ -26,7 +26,7 @@ async def pr_processor(request: Request):
     data = await request.body()
     payload = json.loads(data.decode("utf-8"))
 
-    response = pull_request_operation(payload)
+    response = await pull_request_operation(payload)
 
     return response
 
@@ -36,6 +36,6 @@ async def confluence_processor(request: Request):
     data = await request.body()
     payload = json.loads(data.decode("utf-8"))
 
-    response = confluence_operation(payload)
+    response = await confluence_operation(payload)
 
     return response

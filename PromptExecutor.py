@@ -3,6 +3,8 @@ import requests
 from pr_manager import read_pr_ai_response, write_pr_ai_response, delete_pr_ai_response
 from confluence_manager import read_confluence_ai_response, write_confluence_ai_response, delete_confluence_ai_response
 import json
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 BITBUCKET_TOKEN = "REDACTED"
 CONFLUENCE_URL = "https://confluence.rakuten-it.com/confluence"
@@ -14,23 +16,33 @@ headers = {
 }
 
 
-def run_codex(prompt: str):
+async def run_codex(prompt: str):
     print(f"\n\n--> Running codex...")
-    result = subprocess.run(
-        ["codex", "exec", prompt],
-        check=True,
-        text=True,
-        capture_output=True,
+    loop = asyncio.get_event_loop()
+    # Run the blocking subprocess in a thread pool executor
+    result = await loop.run_in_executor(
+        None,  # Use default ThreadPoolExecutor
+        lambda: subprocess.run(
+            ["codex", "exec", prompt],
+            check=True,
+            text=True,
+            capture_output=True,
+        )
     )
     return result.stdout
 
 
-def pull_request_data(hostname, pathname):
+async def pull_request_data(hostname, pathname):
     url = f"https://{hostname}/rest/api/latest{pathname}"
-    response = requests.get(url, headers={
-        "Authorization": f"Bearer {BITBUCKET_TOKEN}",
-        "Accept": "application/json"
-    })
+    loop = asyncio.get_event_loop()
+    # Run the blocking HTTP request in a thread pool executor
+    response = await loop.run_in_executor(
+        None,
+        lambda: requests.get(url, headers={
+            "Authorization": f"Bearer {BITBUCKET_TOKEN}",
+            "Accept": "application/json"
+        })
+    )
     return response.json()
 
 
@@ -40,7 +52,7 @@ def get_pr_id(pathname: str) -> str:
     return pr_id
 
 
-def pull_request_operation(payload: dict) -> str:
+async def pull_request_operation(payload: dict) -> str:
     operation = payload.get('operation')
     if operation in ['explain', 'review', 'delete', 'test_checklist']:
         pr_id = get_pr_id(payload.get('pathname'))
@@ -55,7 +67,7 @@ def pull_request_operation(payload: dict) -> str:
         if response.get(operation):
             return response[operation]
 
-        pr_data = pull_request_data(payload['hostname'], payload['pathname'])
+        pr_data = await pull_request_data(payload['hostname'], payload['pathname'])
         print(pr_data)
         prompt = None
         if payload['operation'] == "review":
@@ -212,7 +224,7 @@ Rules:
 - If something cannot be determined from the diff, state that clearly rather than guessing.
 """
         if prompt:
-            ai_response = run_codex(prompt)
+            ai_response = await run_codex(prompt)
             write_pr_ai_response(pr_id, {
                 payload['operation']: ai_response,
             })
@@ -225,7 +237,7 @@ def get_confluence_id(pathname: str) -> str:
     return pathname.split('/')[5]
 
 
-def confluence_operation(payload: dict) -> str:
+async def confluence_operation(payload: dict) -> str:
     operation = payload.get('operation')
     if operation in ['rewrite', 'explain', 'delete']:
         confluence_id = get_confluence_id(payload.get('pathname'))
@@ -240,8 +252,8 @@ def confluence_operation(payload: dict) -> str:
         if response.get(operation):
             return response[operation]
 
-        current_content, current_version, page_id, page_title = get_confluence_data(payload['hostname'],
-                                                                                    payload['pathname'])
+        current_content, current_version, page_id, page_title = await get_confluence_data(payload['hostname'],
+                                                                                           payload['pathname'])
         prompt = None
 
         if payload['operation'] == "explain":
@@ -286,7 +298,7 @@ You will be given raw **Atlassian Confluence document content**. Produce a **bri
 **Confluence Document Content:**
 {current_content}
 """
-            ai_response = run_codex(prompt)
+            ai_response = await run_codex(prompt)
             write_confluence_ai_response(confluence_id, {
                 payload['operation']: ai_response,
             })
@@ -356,6 +368,8 @@ Add value by filling gaps **without inventing unknown system specifics**.
 5. **Keep code blocks intact:**
    Do not modify the internal content of existing `<ac:structured-macro ac:name="code">...</ac:structured-macro>` blocks.
    You may add explanation **before/after** code blocks (inputs/outputs, assumptions, pitfalls).
+6. **Keep the colours of text intact:**
+   Do not modify the colour of text.
 
 ---
 
@@ -374,7 +388,7 @@ Add value by filling gaps **without inventing unknown system specifics**.
 ### Input Confluence Content
 {current_content}
 """
-        ai_response = run_codex(prompt)
+        ai_response = await run_codex(prompt)
 
         next_version = current_version + 1
         update_payload = {
@@ -396,7 +410,11 @@ Add value by filling gaps **without inventing unknown system specifics**.
         print(f"Updating page content at: {put_api_url} with new version: {next_version}")
 
         try:
-            put_response = requests.put(put_api_url, headers=headers, data=json.dumps(update_payload))
+            loop = asyncio.get_event_loop()
+            put_response = await loop.run_in_executor(
+                None,
+                lambda: requests.put(put_api_url, headers=headers, data=json.dumps(update_payload))
+            )
             put_response.raise_for_status()
 
             updated_page_data = put_response.json()
@@ -427,7 +445,7 @@ Add value by filling gaps **without inventing unknown system specifics**.
     return "Operation is not recognized"
 
 
-def get_confluence_data(hostname, pathname):
+async def get_confluence_data(hostname, pathname):
     page_id = get_confluence_id(pathname)
 
     # 1. Fetch Current Page Content and Version
@@ -435,7 +453,11 @@ def get_confluence_data(hostname, pathname):
     print(f"Fetching page content from: {get_api_url}")
 
     try:
-        get_response = requests.get(get_api_url, headers=headers)
+        loop = asyncio.get_event_loop()
+        get_response = await loop.run_in_executor(
+            None,
+            lambda: requests.get(get_api_url, headers=headers)
+        )
         get_response.raise_for_status()
         page_data = get_response.json()
 
