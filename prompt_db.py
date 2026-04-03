@@ -98,6 +98,82 @@ async def get_prompt_with_data(prompt_key: str, **kwargs) -> Optional[str]:
     return None
 
 
+def _list_prompts_sync() -> list:
+    """Synchronous function to list all prompts from database."""
+    pool = get_connection_pool()
+    conn = None
+
+    try:
+        conn = pool.getconn()
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(
+                "SELECT key, description, updated_at FROM prompts ORDER BY key"
+            )
+            return cursor.fetchall()
+
+    except psycopg2.Error as e:
+        print(f"Database error listing prompts: {e}")
+        return []
+    finally:
+        if conn:
+            pool.putconn(conn)
+
+
+async def list_prompts() -> list:
+    """
+    List all prompts from the database.
+
+    Returns:
+        List of prompt dictionaries with key, description, and updated_at
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _list_prompts_sync)
+
+
+def _update_prompt_sync(prompt_key: str, prompt_text: str) -> bool:
+    """Synchronous function to update a prompt in the database."""
+    pool = get_connection_pool()
+    conn = None
+
+    try:
+        conn = pool.getconn()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE prompts
+                SET prompt_text = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE key = %s
+                """,
+                (prompt_text, prompt_key)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    except psycopg2.Error as e:
+        print(f"Database error updating prompt '{prompt_key}': {e}")
+        if conn:
+            conn.rollback()
+        return False
+    finally:
+        if conn:
+            pool.putconn(conn)
+
+
+async def update_prompt(prompt_key: str, prompt_text: str) -> bool:
+    """
+    Update a prompt's text in the database.
+
+    Args:
+        prompt_key: The key identifying the prompt
+        prompt_text: The new prompt text
+
+    Returns:
+        True if updated successfully, False otherwise
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _update_prompt_sync, prompt_key, prompt_text)
+
+
 def close_connection_pool():
     """Close all connections in the pool. Call this on application shutdown."""
     global _connection_pool
