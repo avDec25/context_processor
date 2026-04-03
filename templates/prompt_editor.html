@@ -13,8 +13,8 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: #f5f5f5;
-            color: #333;
+            background: #F4F5F7;
+            color: #172B4D;
             height: 100vh;
             overflow: hidden;
         }
@@ -25,71 +25,78 @@
         }
 
         .sidebar {
-            width: 300px;
-            background: #fff;
-            border-right: 1px solid #ddd;
+            width: 280px;
+            background: #FAFBFC;
+            border-right: 1px solid #DFE1E6;
             display: flex;
             flex-direction: column;
         }
 
         .sidebar-header {
-            padding: 20px;
-            border-bottom: 1px solid #ddd;
-            background: #fafafa;
+            height: 64px;
+            padding: 0 20px;
+            border-bottom: 1px solid #DFE1E6;
+            background: #FFFFFF;
+            display: flex;
+            align-items: center;
         }
 
         .sidebar-header h1 {
-            font-size: 20px;
+            font-size: 16px;
             font-weight: 600;
-            color: #333;
+            color: #172B4D;
+            letter-spacing: -0.01em;
         }
 
         .prompt-list {
             flex: 1;
             overflow-y: auto;
-            padding: 10px;
+            padding: 8px;
         }
 
         .prompt-item {
-            padding: 12px 15px;
-            margin-bottom: 5px;
+            padding: 10px 12px;
+            margin-bottom: 4px;
             cursor: pointer;
-            border-radius: 6px;
-            transition: background 0.2s;
-            border: 1px solid transparent;
+            border-radius: 3px;
+            transition: background 0.1s ease-in-out;
+            border: 2px solid transparent;
         }
 
         .prompt-item:hover {
-            background: #f5f5f5;
+            background: #EBECF0;
         }
 
         .prompt-item.active {
-            background: #e3f2fd;
-            border-color: #2196f3;
+            background: #DEEBFF;
+            border-color: #0052CC;
         }
 
         .prompt-item-key {
-            font-weight: 500;
-            color: #333;
+            font-weight: 600;
+            color: #172B4D;
             margin-bottom: 4px;
+            font-size: 14px;
         }
 
         .prompt-item-desc {
             font-size: 12px;
-            color: #666;
+            color: #5E6C84;
+            line-height: 1.4;
         }
 
         .editor-panel {
             flex: 1;
             display: flex;
             flex-direction: column;
-            background: #fff;
+            background: #FFFFFF;
         }
 
         .editor-header {
-            padding: 20px;
-            border-bottom: 1px solid #ddd;
-            background: #fafafa;
+            height: 64px;
+            padding: 0 24px;
+            border-bottom: 1px solid #DFE1E6;
+            background: #FFFFFF;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -97,83 +104,97 @@
 
         .editor-title {
             display: flex;
-            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            flex: 1;
         }
 
         .editor-title h2 {
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 600;
-            color: #333;
+            color: #172B4D;
+            letter-spacing: -0.01em;
         }
 
         .editor-title .meta {
             font-size: 12px;
-            color: #666;
-            margin-top: 4px;
+            color: #5E6C84;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .editor-actions {
             display: flex;
-            gap: 10px;
+            gap: 8px;
         }
 
         .btn {
-            padding: 8px 16px;
+            height: 32px;
+            padding: 0 12px;
             border: none;
-            border-radius: 6px;
+            border-radius: 3px;
             cursor: pointer;
             font-size: 14px;
             font-weight: 500;
-            transition: all 0.2s;
+            transition: all 0.1s ease-in-out;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .btn-primary {
-            background: #2196f3;
+            background: #0052CC;
             color: white;
         }
 
         .btn-primary:hover {
-            background: #1976d2;
+            background: #0065FF;
         }
 
         .btn-primary:disabled {
-            background: #ccc;
+            background: #DFE1E6;
+            color: #A5ADBA;
             cursor: not-allowed;
         }
 
         .btn-secondary {
-            background: #fff;
-            color: #666;
-            border: 1px solid #ddd;
+            background: #FAFBFC;
+            color: #42526E;
+            border: 1px solid #DFE1E6;
         }
 
         .btn-secondary:hover {
-            background: #f5f5f5;
+            background: #EBECF0;
         }
 
         .editor-content {
             flex: 1;
-            padding: 20px;
+            padding: 24px;
             overflow-y: auto;
+            background: #FAFBFC;
         }
 
         .editor-textarea {
             width: 100%;
             height: 100%;
-            min-height: 400px;
-            padding: 15px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
+            min-height: 500px;
+            padding: 16px;
+            border: 2px solid #DFE1E6;
+            border-radius: 3px;
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-            font-size: 14px;
+            font-size: 13px;
             line-height: 1.6;
             resize: vertical;
             outline: none;
-            transition: border-color 0.2s;
+            transition: border-color 0.1s ease-in-out;
+            background: #FFFFFF;
+            color: #172B4D;
         }
 
         .editor-textarea:focus {
-            border-color: #2196f3;
+            border-color: #0052CC;
+            box-shadow: 0 0 0 1px #0052CC;
         }
 
         .empty-state {
@@ -182,37 +203,45 @@
             align-items: center;
             justify-content: center;
             height: 100%;
-            color: #999;
+            color: #5E6C84;
         }
 
         .empty-state-icon {
             font-size: 48px;
             margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .empty-state p {
+            font-size: 14px;
         }
 
         .loading {
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 20px;
-            color: #666;
+            padding: 24px;
+            color: #5E6C84;
+            font-size: 14px;
         }
 
         .notification {
             position: fixed;
             top: 20px;
             right: 20px;
-            padding: 12px 20px;
-            background: #4caf50;
+            padding: 12px 16px;
+            background: #00875A;
             color: white;
-            border-radius: 6px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-            animation: slideIn 0.3s ease;
+            border-radius: 3px;
+            box-shadow: 0 4px 8px -2px rgba(9, 30, 66, 0.25), 0 0 1px rgba(9, 30, 66, 0.31);
+            animation: slideIn 0.2s ease;
             z-index: 1000;
+            font-size: 14px;
+            font-weight: 500;
         }
 
         .notification.error {
-            background: #f44336;
+            background: #DE350B;
         }
 
         @keyframes slideIn {
@@ -230,7 +259,29 @@
             text-align: right;
             margin-top: 8px;
             font-size: 12px;
-            color: #999;
+            color: #5E6C84;
+        }
+
+        /* Scrollbar styling for Atlassian look */
+        .prompt-list::-webkit-scrollbar,
+        .editor-content::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .prompt-list::-webkit-scrollbar-track,
+        .editor-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .prompt-list::-webkit-scrollbar-thumb,
+        .editor-content::-webkit-scrollbar-thumb {
+            background: #C1C7D0;
+            border-radius: 4px;
+        }
+
+        .prompt-list::-webkit-scrollbar-thumb:hover,
+        .editor-content::-webkit-scrollbar-thumb:hover {
+            background: #A5ADBA;
         }
     </style>
 </head>
@@ -334,12 +385,14 @@
 
             headerEl.style.display = 'flex';
             keyEl.textContent = currentPrompt.key;
-            descEl.textContent = currentPrompt.description || 'No description';
 
+            const metaText = currentPrompt.description || 'No description';
             if (currentPrompt.updated_at) {
                 const date = new Date(currentPrompt.updated_at);
-                updatedEl.textContent = ` • Updated ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+                updatedEl.textContent = `Updated ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+                descEl.textContent = metaText + ' • ';
             } else {
+                descEl.textContent = metaText;
                 updatedEl.textContent = '';
             }
 
