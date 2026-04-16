@@ -326,6 +326,38 @@
         let originalText = '';
         let isDirty = false;
 
+        const STORAGE_PREFIX = 'prompt_edit_';
+
+        // Local storage helpers
+        function saveToLocalStorage(key, text) {
+            try {
+                localStorage.setItem(STORAGE_PREFIX + key, text);
+            } catch (error) {
+                console.error('Failed to save to localStorage:', error);
+            }
+        }
+
+        function loadFromLocalStorage(key) {
+            try {
+                return localStorage.getItem(STORAGE_PREFIX + key);
+            } catch (error) {
+                console.error('Failed to load from localStorage:', error);
+                return null;
+            }
+        }
+
+        function clearFromLocalStorage(key) {
+            try {
+                localStorage.removeItem(STORAGE_PREFIX + key);
+            } catch (error) {
+                console.error('Failed to clear from localStorage:', error);
+            }
+        }
+
+        function hasLocalChanges(key) {
+            return loadFromLocalStorage(key) !== null;
+        }
+
         // Fetch and display all prompts
         async function loadPrompts() {
             try {
@@ -346,18 +378,25 @@
                 return;
             }
 
-            listEl.innerHTML = prompts.map(prompt => `
-                <div class="prompt-item" data-key="${prompt.key}" onclick="selectPrompt('${prompt.key}')">
-                    <div class="prompt-item-key">${prompt.key}</div>
-                    <div class="prompt-item-desc">${prompt.description || 'No description'}</div>
-                </div>
-            `).join('');
+            listEl.innerHTML = prompts.map(prompt => {
+                const hasChanges = hasLocalChanges(prompt.key);
+                const indicator = hasChanges ? ' <span style="color: #0052CC; font-weight: 600;">●</span>' : '';
+                return `
+                    <div class="prompt-item" data-key="${prompt.key}" onclick="selectPrompt('${prompt.key}')">
+                        <div class="prompt-item-key">${prompt.key}${indicator}</div>
+                        <div class="prompt-item-desc">${prompt.description || 'No description'}</div>
+                    </div>
+                `;
+            }).join('');
         }
 
         async function selectPrompt(key) {
-            // Warn if unsaved changes
-            if (isDirty && !confirm('You have unsaved changes. Continue?')) {
-                return;
+            // Save current prompt's changes to local storage before switching
+            if (currentPrompt && isDirty) {
+                const textArea = document.getElementById('promptText');
+                if (textArea) {
+                    saveToLocalStorage(currentPrompt.key, textArea.value);
+                }
             }
 
             try {
@@ -366,7 +405,6 @@
 
                 currentPrompt = await response.json();
                 originalText = currentPrompt.prompt_text;
-                isDirty = false;
 
                 renderEditor();
                 updateActivePrompt(key);
@@ -396,13 +434,21 @@
                 updatedEl.textContent = '';
             }
 
+            // Check for local storage changes
+            const localText = loadFromLocalStorage(currentPrompt.key);
+            const displayText = localText !== null ? localText : (currentPrompt.prompt_text || '');
+            isDirty = localText !== null && localText !== originalText;
+
             contentEl.innerHTML = `
-                <textarea class="editor-textarea" id="promptText" placeholder="Enter prompt text...">${currentPrompt.prompt_text || ''}</textarea>
-                <div class="char-count" id="charCount">${(currentPrompt.prompt_text || '').length} characters</div>
+                <textarea class="editor-textarea" id="promptText" placeholder="Enter prompt text...">${displayText}</textarea>
+                <div class="char-count" id="charCount">${displayText.length} characters</div>
             `;
 
             const textArea = document.getElementById('promptText');
             textArea.addEventListener('input', handleTextChange);
+
+            // Update button states
+            document.getElementById('saveBtn').disabled = !isDirty;
 
             // Focus and move cursor to end
             textArea.focus();
@@ -413,8 +459,19 @@
             const newText = e.target.value;
             isDirty = newText !== originalText;
 
+            // Save to local storage
+            if (isDirty) {
+                saveToLocalStorage(currentPrompt.key, newText);
+            } else {
+                clearFromLocalStorage(currentPrompt.key);
+            }
+
             document.getElementById('saveBtn').disabled = !isDirty;
             document.getElementById('charCount').textContent = `${newText.length} characters`;
+
+            // Update prompt list to show/hide indicator
+            renderPromptList();
+            updateActivePrompt(currentPrompt.key);
         }
 
         function updateActivePrompt(key) {
@@ -446,9 +503,12 @@
                 isDirty = false;
                 document.getElementById('saveBtn').disabled = true;
 
+                // Clear local storage after successful save
+                clearFromLocalStorage(currentPrompt.key);
+
                 showNotification('Prompt saved successfully');
 
-                // Refresh the prompt list to update timestamp
+                // Refresh the prompt list to update timestamp and clear indicator
                 await loadPrompts();
                 await selectPrompt(currentPrompt.key);
             } catch (error) {
@@ -464,10 +524,17 @@
                 return;
             }
 
+            // Clear local storage
+            clearFromLocalStorage(currentPrompt.key);
+
             document.getElementById('promptText').value = originalText;
             isDirty = false;
             document.getElementById('saveBtn').disabled = true;
             document.getElementById('charCount').textContent = `${originalText.length} characters`;
+
+            // Update prompt list to remove indicator
+            renderPromptList();
+            updateActivePrompt(currentPrompt.key);
         }
 
         function showNotification(message, type = 'success') {
@@ -496,11 +563,13 @@
             }
         });
 
-        // Warn before leaving if there are unsaved changes
-        window.addEventListener('beforeunload', (e) => {
-            if (isDirty) {
-                e.preventDefault();
-                e.returnValue = '';
+        // Save current prompt to local storage before page unload
+        window.addEventListener('beforeunload', () => {
+            if (currentPrompt && isDirty) {
+                const textArea = document.getElementById('promptText');
+                if (textArea) {
+                    saveToLocalStorage(currentPrompt.key, textArea.value);
+                }
             }
         });
 

@@ -1,6 +1,7 @@
 import subprocess
 import requests
 import os
+import tempfile
 from pathlib import Path
 from pr_manager import read_pr_ai_response, write_pr_ai_response, delete_pr_ai_response
 from confluence_manager import read_confluence_ai_response, write_confluence_ai_response, delete_confluence_ai_response
@@ -27,17 +28,30 @@ headers = {
 async def run_codex(prompt: str):
     print(f"\n\n--> Running codex...")
     loop = asyncio.get_event_loop()
-    # Run the blocking subprocess in a thread pool executor
-    result = await loop.run_in_executor(
-        None,  # Use default ThreadPoolExecutor
-        lambda: subprocess.run(
-            ["codex", "exec", prompt],
-            check=True,
-            text=True,
-            capture_output=True,
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        tmp_path = f.name
+
+    try:
+        # codex exec writes its response via terminal UI, not stdout.
+        # --output-last-message writes the final AI response to a file.
+        # --full-auto avoids hanging on approval prompts.
+        # --ephemeral avoids polluting session history.
+        cmd = ["codex", "exec", "--skip-git-repo-check", "--full-auto", "--ephemeral", "-c", "mcp_servers={}", "--output-last-message", tmp_path, "-"]
+        print(f"--> Command: {' '.join(cmd)}")
+        await loop.run_in_executor(
+            None,
+            lambda: subprocess.run(
+                cmd,
+                input=prompt,
+                text=True,
+                capture_output=True,
+            )
         )
-    )
-    return result.stdout
+        with open(tmp_path, 'r') as f:
+            return f.read()
+    finally:
+        os.unlink(tmp_path)
 
 
 async def pull_request_data(hostname, pathname):
@@ -165,6 +179,8 @@ async def confluence_operation(payload: dict) -> str:
 
         if payload['operation'] == "explain":
             prompt = await get_prompt_with_data('confluence_explain', confluence_content=current_content)
+            if not prompt:
+                return "Failed to load prompt template 'confluence_explain'"
             ai_response = await run_codex(prompt)
             write_confluence_ai_response(confluence_id, {
                 payload['operation']: ai_response,
@@ -173,6 +189,8 @@ async def confluence_operation(payload: dict) -> str:
 
         elif payload['operation'] == "rewrite":
             prompt = await get_prompt_with_data('confluence_rewrite', confluence_content=current_content)
+            if not prompt:
+                return "Failed to load prompt template 'confluence_rewrite'"
             ai_response = await run_codex(prompt)
 
             next_version = current_version + 1
