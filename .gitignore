@@ -169,3 +169,8 @@ Temporary Items
 .ionide
 __pycache__
 .claude
+
+# Secrets - never commit
+.env.local.conf
+*.env
+.env*
