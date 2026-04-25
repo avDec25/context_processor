@@ -90,11 +90,9 @@ async def get_prompt_with_data(prompt_key: str, **kwargs) -> Optional[str]:
     """
     prompt_template = await get_prompt(prompt_key)
     if prompt_template:
-        try:
-            return prompt_template.format(**kwargs)
-        except KeyError as e:
-            print(f"Missing key in prompt data for '{prompt_key}': {e}")
-            return None
+        for key, value in kwargs.items():
+            prompt_template = prompt_template.replace('{' + key + '}', str(value))
+        return prompt_template
     return None
 
 

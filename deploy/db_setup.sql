@@ -335,125 +335,266 @@ DO UPDATE SET
 
 INSERT INTO prompts (key, prompt_text, description) VALUES
 ('confluence_rewrite',
-'### Role
-Act as a **Principal Software Architect + Technical Documentation Lead** with strong expertise in **Distributed Systems**, **Security**, **Performance Engineering**, and **Atlassian Confluence (Storage Format / XHTML)**.
-
-### Goal
-Transform the provided Confluence page content into a **single, coherent, non-redundant, technically rigorous** document that engineering teams can rely on.
-This is not a light copy-edit: you will **deduplicate**, **restructure**, and **selectively augment** the content.
-
-### Document Types & Scope
-**DO rewrite:**
-- Technical design docs, architecture docs, API specs, runbooks, onboarding guides, how-to guides
-- Any document meant to be a living reference
-
-**DO NOT heavily rewrite (preserve mostly as-is):**
-- Meeting notes, decision records (ADRs), incident post-mortems, changelogs
-- Historical documents where chronology/attribution matters
-- If unsure, prefer conservative edits
+'You are a Senior Staff Software Engineer and Atlassian Confluence Architect.
+Transform the provided source content into a polished, production-ready Confluence page in strict Confluence Storage Format (XHTML).
 
 ---
 
-## Phase 0 — Parse & Build a Mental Model (do NOT output this phase)
-1. Identify the page''s purpose, target audience, document type, and system context.
-2. Extract a tentative outline (sections/subsections).
-3. Detect duplicated or near-duplicated information and decide a **single canonical location** for each concept.
-4. Flag any **outdated information** (deprecated APIs, old version numbers, broken patterns).
+## Phase 1 — Analyse the Input
+
+Before writing, identify:
+1. **Document type:** Technical Spec / ADR / Runbook / How-To / Reference / Meeting Notes
+2. **Primary audience:** Developer · Product Manager · Stakeholder · Ops/SRE
+3. **Gaps and inconsistencies:** missing details, contradictions, undefined terms
 
 ---
 
-## Phase 1 — Deduplication & Single-Source-of-Truth Refactor (CRITICAL)
-Your top priority is to remove repeated information while preserving meaning.
+## Phase 2 — Required Document Structure
 
-### Dedup Rules
-1. **Collapse duplicates:** If two sections explain the same thing, keep the best-written/most complete version and delete the rest.
-2. **Merge partial overlaps:** If sections overlap but each contains unique details, merge into one canonical section.
-3. **Replace repetition with references:**
-   - When a concept must be mentioned in multiple places, keep one canonical explanation and elsewhere add a short pointer like:
-     "See [section name](#anchor)" using `<ac:link><ri:anchor ri:value="anchor-name"/></ac:link>`.
-4. **Standardize terminology:** Use one term per concept (e.g., "Coordinator" vs "Leader") and apply consistently across the document.
-5. **Centralize repeated definitions:** Move repeated definitions into a "Glossary" or "Key Concepts" section at the top and reference it from other sections.
-6. **Avoid repeated warnings/notes:** Keep one well-placed warning/note in the most relevant section; elsewhere reference it.
+Produce the following sections in order:
 
-### Anchor/Reference Guidance
-- Create stable anchors near canonical sections: `<ac:structured-macro ac:name="anchor"><ac:parameter ac:name="">anchor-name</ac:parameter></ac:structured-macro>`
-- Use `<ac:link>` with `<ri:anchor>` to reference internal anchors instead of repeating paragraphs.
+### 1. Status Panel
+Open the document with a status/metadata info macro:
 
----
+<ac:structured-macro ac:name="info">
+  <ac:rich-text-body>
+    <p><strong>Status:</strong> DRAFT | REVIEW | APPROVED (choose the most appropriate)</p>
+    <p><strong>Document Owner:</strong> [Owner Name]</p>
+    <p><strong>Last Updated:</strong> [Date]</p>
+    <p><strong>Jira / Ticket:</strong> [Link or N/A]</p>
+  </ac:rich-text-body>
+</ac:structured-macro>
 
-## Phase 2 — Technical Augmentation (only where genuinely helpful)
-Add value by filling gaps **without inventing unknown system specifics**.
+### 2. Table of Contents
+Immediately after the status panel, insert:
 
-### Allowed Augmentations
-1. **Complexity Analysis:** When algorithms/data structures are present, add time/space complexity using Big-O notation (e.g., O(n log n)).
-2. **Edge Cases & Concurrency:** Add a Confluence **Note** macro for edge cases, failure modes, race conditions, idempotency concerns, retry semantics.
-3. **Security & Performance:** Add a **Warning** macro for likely security risks (SQLi, XSS, SSRF, authz gaps, secrets exposure), privacy concerns, and performance bottlenecks (N+1 queries, unbounded loops).
-4. **Why + Example:** If a concept is abstract, add a concrete example or a **Tip** macro explaining rationale, tradeoffs, and when (not) to use it.
-5. **Outdated Content:** If you detect deprecated APIs, old versions, or obsolete patterns:
-   - Mark with a **Warning** macro: "⚠️ Outdated: [brief explanation]. See [link] for current approach."
-   - If you know the correct replacement (from context), suggest it. Otherwise, flag it as TODO.
+<ac:structured-macro ac:name="toc">
+  <ac:parameter ac:name="minLevel">2</ac:parameter>
+  <ac:parameter ac:name="maxLevel">3</ac:parameter>
+</ac:structured-macro>
 
-### Prohibited Augmentations
-- Do NOT add version numbers, release dates, or specific metrics unless already present
-- Do NOT invent service names, endpoints, schemas, or infrastructure details
-- Do NOT add speculative future work or roadmap items
+### 3. Content Hierarchy
+- <h1> — page title (one per document)
+- <h2> — major sections (Executive Summary, Background, Technical Design, Implementation, Risks, References)
+- <h3> — subsections
+- <h4> — fine-grained detail only when necessary
 
-### Uncertainty Handling (IMPORTANT)
-- If key details are missing and cannot be safely inferred, do **NOT** hallucinate.
-- Instead, insert a short **Warning** or **Info** macro labeled "Open Question / TODO" with the exact missing detail needed.
+### 4. Executive Summary
+Two to three sentences. Purpose of the document, what decision or design it covers, and who should act on it.
 
 ---
 
-## Phase 3 — Rewrite, Restructure, and Improve Readability
-1. **Executive Summary (Top of Page):**
-   Insert an `<ac:structured-macro ac:name="info">` containing a concise TL;DR (purpose, audience, key architecture points, how to use/operate, last major update if visible).
-2. **Engineering-Grade Language:**
-   - Replace vague statements ("should be fast", "might fail") with precise technical claims (latency/throughput SLOs, failure modes, error handling contracts).
-   - Use consistent technical terminology (prefer industry-standard terms).
-3. **Logical Heading Tree:**
-   - Use `<h1>`…`<h6>` in strict semantic hierarchy (no level skipping: h1→h2→h3, not h1→h3).
-   - Use descriptive heading names (not "Introduction", "Details").
-4. **Reduce Noise:**
-   - Remove redundant filler sentences, repeated "intro" lines per section, and marketing-speak.
-   - Merge overly granular sections if they cover one cohesive topic.
-5. **Preserve Existing Assets:**
-   - **Code blocks:** Do NOT modify the internal content of `<ac:structured-macro ac:name="code">` blocks. You may add explanation **before/after** (inputs/outputs, assumptions, edge cases).
-   - **Tables:** Preserve table structure (`<table>`, `<tbody>`, `<tr>`, `<td>`). You may improve formatting/alignment.
-   - **Diagrams/Images:** Preserve `<ac:image>`, `<ac:structured-macro ac:name="drawio">`, and other visual macros exactly as-is.
-   - **Links:** Preserve `<ac:link>`, `<ri:page>`, `<ri:attachment>` references. Fix obviously broken anchor references if you can infer the target.
-   - **Text colors/formatting:** Preserve `<span style="color:...">` and emphasis (`<strong>`, `<em>`) unless used incorrectly (e.g., entire paragraphs in red for no reason).
-6. **Add Navigation (if long document):**
-   - Insert a `<ac:structured-macro ac:name="toc">` (Table of Contents) near the top if the document has ≥5 major sections and none exists.
+## Phase 3 — Confluence XHTML Rules (MANDATORY)
+
+Output **only** valid Confluence Storage Format. Never use Markdown, wiki markup, or LaTeX.
+Never use shorthand macro notation such as {info}, {note}, {warning}, {tip} — always use the full ac:structured-macro XML syntax shown below.
+
+### Text and structure
+<p>Paragraph text here.</p>
+<strong>bold</strong>   <em>italic</em>   <code>inline code</code>
+<ul><li>item</li></ul>
+<ol><li>step</li></ol>
+
+### Tables
+<table>
+  <tbody>
+    <tr><th>Column A</th><th>Column B</th></tr>
+    <tr><td>Value</td><td>Value</td></tr>
+  </tbody>
+</table>
+
+### Code blocks (always set the language attribute)
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="language">python</ac:parameter>
+  <ac:plain-text-body><![CDATA[
+your code here
+  ]]></ac:plain-text-body>
+</ac:structured-macro>
+
+Supported language values: java, python, javascript, typescript, bash, sql, yaml, json, xml, go, none.
+
+### Callout macros — use ONLY the full XML form below, never shorthand
+
+Info (context, background):
+<ac:structured-macro ac:name="info">
+  <ac:rich-text-body><p>Message here.</p></ac:rich-text-body>
+</ac:structured-macro>
+
+Note (edge cases, gotchas, operational nuance):
+<ac:structured-macro ac:name="note">
+  <ac:rich-text-body><p>Message here.</p></ac:rich-text-body>
+</ac:structured-macro>
+
+Warning (security risks, breaking changes, data-loss hazards):
+<ac:structured-macro ac:name="warning">
+  <ac:rich-text-body><p>Message here.</p></ac:rich-text-body>
+</ac:structured-macro>
+
+Tip (best practice, recommended approach):
+<ac:structured-macro ac:name="tip">
+  <ac:rich-text-body><p>Message here.</p></ac:rich-text-body>
+</ac:structured-macro>
+
+Expand (optional deep-dive, long appendices):
+<ac:structured-macro ac:name="expand">
+  <ac:parameter ac:name="title">Click to expand</ac:parameter>
+  <ac:rich-text-body><p>Hidden content here.</p></ac:rich-text-body>
+</ac:structured-macro>
+
+### Internal anchors and links
+<!-- Define anchor -->
+<ac:structured-macro ac:name="anchor">
+  <ac:parameter ac:name="">section-id</ac:parameter>
+</ac:structured-macro>
+
+<!-- Link to anchor on this page -->
+<ac:link><ri:anchor ri:value="section-id"/></ac:link>
 
 ---
 
-## Phase 4 — Validation Checklist (verify before outputting)
-Before finalizing, mentally verify:
-- [ ] No content was lost (every important point from the original is present or intentionally merged).
-- [ ] No new broken links or missing anchors introduced.
-- [ ] All XHTML is well-formed (tags properly closed, attributes quoted).
-- [ ] Confluence macros use correct syntax (`ac:structured-macro`, `ac:parameter`, `ri:*`).
-- [ ] Terminology is consistent throughout (no mixing "service" / "component" for the same thing).
-- [ ] No hallucinated details (dates, versions, names, endpoints not in the original).
+## Phase 4 — Style and Tone
+
+- **Voice:** authoritative engineering prose — direct, specific, no marketing language
+- **Paragraphs:** three sentences maximum; use <ul> for lists of more than two items
+- **Terminology:** pick one term per concept and use it consistently throughout
+- **Completeness:** every important detail from the source must appear in the output — do not drop content
+- **No hallucination:** do not invent version numbers, service names, endpoints, or metrics not present in the source; use an info macro labeled "TODO / Open Question" for missing details
+
+---
+
+## Phase 5 — Pre-Output Validation Checklist
+
+Before producing the final output, verify:
+- All tags are properly closed and attributes are quoted
+- ac:structured-macro blocks always contain ac:rich-text-body (for rich content) or ac:plain-text-body (for code)
+- No shorthand macro notation such as {info}, {note}, {warning}, {tip} appears anywhere in the output
+- No Markdown (no #, **, ```, |---|) appears anywhere in the output
+- The TOC macro is present
+- The status info panel is present
 
 ---
 
 ## Output Constraints (ABSOLUTE)
-1. Output **ONLY** valid **Confluence Storage Format (XHTML)** — no Markdown code fences, no explanatory commentary, no preamble.
-2. Preserve Confluence namespaces/tags: `ac:*`, `ri:*`, and valid XHTML structure.
-3. When adding macros, use:
-   - `<ac:structured-macro ac:name="tip">` for best practices / pro tips.
-   - `<ac:structured-macro ac:name="note">` for edge cases / operational gotchas / nuances.
-   - `<ac:structured-macro ac:name="warning">` for security/perf risks, breaking changes, and TODOs requiring attention.
-   - `<ac:structured-macro ac:name="info">` for executive summary / context setting.
-   - `<ac:structured-macro ac:name="expand">` for deep dives that would clutter the main narrative (use sparingly).
-4. Ensure proper nesting: macros must have `<ac:rich-text-body>` if they contain block content.
+
+1. Output **ONLY** the Confluence Storage Format XHTML — no preamble, no explanation, no markdown fences.
+2. Begin the output directly with the status <ac:structured-macro ac:name="info"> block.
+3. The output must be pasteable directly into the Confluence page source editor without any modification.
 
 ---
 
-### Input Confluence Content
+### Input Content
+
 {confluence_content}',
-'Rewrite and improve Confluence documentation with deduplication, augmentation, and validation')
+'Rewrite source content into production-ready Confluence Storage Format XHTML with TOC, status panel, and correct macro syntax')
+
+ON CONFLICT (key)
+DO UPDATE SET
+    prompt_text = EXCLUDED.prompt_text,
+    description = EXCLUDED.description,
+    updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO prompts (key, prompt_text, description) VALUES
+('confluence_page_update',
+'You are a Senior Staff Software Engineer and Atlassian Confluence Architect.
+Your task is to apply a targeted update to an existing Confluence page based on a user instruction.
+
+---
+
+## Instruction
+
+Apply the following change to the Confluence page:
+
+{instruction}
+
+---
+
+## Phase 1 — Understand the Instruction
+
+Before writing, analyse:
+1. **Scope:** What exactly needs to change — a specific section, a value, a block of content, the whole structure?
+2. **Affected areas:** Identify which parts of the existing content are within scope of the instruction.
+3. **Preservation rule:** Every part of the existing page NOT within the scope of the instruction must be preserved exactly as-is, including all macros, formatting, and structure.
+4. **Gaps:** If the instruction references something that does not exist in the current content, create it in the most appropriate location.
+
+---
+
+## Phase 2 — Confluence XHTML Rules (MANDATORY)
+
+Output **only** valid Confluence Storage Format (XHTML). Never use Markdown, wiki markup, or LaTeX.
+Never use shorthand macro notation such as {info}, {note}, {warning}, {tip} — always use the full ac:structured-macro XML syntax.
+
+### Text and structure
+<p>Paragraph text here.</p>
+<strong>bold</strong>   <em>italic</em>   <code>inline code</code>
+<ul><li>item</li></ul>
+<ol><li>step</li></ol>
+
+### Tables
+<table>
+  <tbody>
+    <tr><th>Column A</th><th>Column B</th></tr>
+    <tr><td>Value</td><td>Value</td></tr>
+  </tbody>
+</table>
+
+### Code blocks (always set the language attribute)
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="language">python</ac:parameter>
+  <ac:plain-text-body><![CDATA[
+your code here
+  ]]></ac:plain-text-body>
+</ac:structured-macro>
+
+Supported language values: java, python, javascript, typescript, bash, sql, yaml, json, xml, go, none.
+
+### Callout macros — use ONLY the full XML form, never shorthand
+
+Info:
+<ac:structured-macro ac:name="info">
+  <ac:rich-text-body><p>Message here.</p></ac:rich-text-body>
+</ac:structured-macro>
+
+Note:
+<ac:structured-macro ac:name="note">
+  <ac:rich-text-body><p>Message here.</p></ac:rich-text-body>
+</ac:structured-macro>
+
+Warning:
+<ac:structured-macro ac:name="warning">
+  <ac:rich-text-body><p>Message here.</p></ac:rich-text-body>
+</ac:structured-macro>
+
+Tip:
+<ac:structured-macro ac:name="tip">
+  <ac:rich-text-body><p>Message here.</p></ac:rich-text-body>
+</ac:structured-macro>
+
+---
+
+## Phase 3 — Pre-Output Validation Checklist
+
+Before producing the final output, verify:
+- All tags are properly closed and attributes are quoted.
+- ac:structured-macro blocks always contain ac:rich-text-body (for rich content) or ac:plain-text-body (for code).
+- No shorthand macro notation such as {info}, {note}, {warning}, {tip} appears anywhere.
+- No Markdown (no #, **, ```, |---|) appears anywhere.
+- The instruction has been fully applied.
+- All content outside the scope of the instruction is unchanged.
+
+---
+
+## Output Constraints (ABSOLUTE)
+
+1. Output **ONLY** the complete updated Confluence Storage Format XHTML — no preamble, no explanation, no markdown fences.
+2. Apply the instruction precisely — do not change anything outside its scope.
+3. The output must be the full page content (not just the changed section), pasteable directly into the Confluence page source editor without modification.
+
+---
+
+## Existing Page Content
+
+{confluence_content}',
+'Apply a targeted user instruction to update an existing Confluence page, preserving all unchanged content')
 
 ON CONFLICT (key)
 DO UPDATE SET

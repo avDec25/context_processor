@@ -110,6 +110,63 @@
         }
     }
 
+    // --- Timing History (localStorage) ---
+    const TIMING_HISTORY_KEY = "injected_timing_history_v1";
+
+    function saveTimingHistory(operation, durationMs) {
+        try {
+            const stored = localStorage.getItem(TIMING_HISTORY_KEY);
+            const all = stored ? JSON.parse(stored) : {};
+            if (!Array.isArray(all[operation])) all[operation] = [];
+            all[operation].push({ ts: Date.now(), ms: durationMs });
+            // Keep last 50 entries per operation
+            if (all[operation].length > 50) all[operation] = all[operation].slice(-50);
+            localStorage.setItem(TIMING_HISTORY_KEY, JSON.stringify(all));
+        } catch {}
+    }
+
+    // --- Timer Badge ---
+    function wrapWithTimerBadge(btn) {
+        const container = document.createElement("div");
+        container.style.cssText = "position: relative; display: inline-flex;";
+        const badge = document.createElement("div");
+        badge.className = "injected-timer-badge";
+        container.appendChild(btn);
+        container.appendChild(badge);
+        btn._timerBadge = badge;
+        return container;
+    }
+
+    function startTimerBadge(badge) {
+        badge.style.removeProperty("animation");
+        badge.classList.add("counting");
+        badge.textContent = "0.0s";
+        badge.style.display = "block";
+        badge.style.opacity = "1";
+        const startTime = Date.now();
+        const interval = setInterval(() => {
+            badge.textContent = ((Date.now() - startTime) / 1000).toFixed(1) + "s";
+        }, 100);
+        return { startTime, interval };
+    }
+
+    function stopTimerBadge(badge, timerObj, operation) {
+        clearInterval(timerObj.interval);
+        const durationMs = Date.now() - timerObj.startTime;
+        badge.classList.remove("counting");
+        badge.textContent = (durationMs / 1000).toFixed(1) + "s";
+        saveTimingHistory(operation, durationMs);
+        // Fade out after 2.5s
+        setTimeout(() => {
+            badge.style.animation = "badge-fade-out 0.4s ease forwards";
+            setTimeout(() => {
+                badge.style.display = "none";
+                badge.style.animation = "";
+                badge.style.opacity = "1";
+            }, 420);
+        }, 2500);
+    }
+
     async function readBodySafe(response) {
         const cloned = response.clone();
         let text = "";
@@ -221,6 +278,39 @@
             }
             .custom-scrollbar::-webkit-scrollbar-thumb:hover {
                 background-color: rgba(0, 0, 0, 0.35);
+            }
+
+            @keyframes badge-count-pulse {
+                0%, 100% { opacity: 1; box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
+                50%       { opacity: 0.65; box-shadow: 0 2px 12px rgba(0,0,0,0.5); }
+            }
+
+            @keyframes badge-fade-out {
+                0%   { opacity: 1; }
+                100% { opacity: 0; }
+            }
+
+            .injected-timer-badge {
+                position: absolute;
+                top: -13px;
+                right: -10px;
+                background: rgba(15, 15, 15, 0.88);
+                color: #fff;
+                font-size: 10px;
+                font-weight: 700;
+                padding: 2px 7px;
+                border-radius: 20px;
+                pointer-events: none;
+                white-space: nowrap;
+                z-index: 10;
+                font-family: ui-monospace, 'Cascadia Code', monospace;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+                letter-spacing: 0.02em;
+                display: none;
+            }
+
+            .injected-timer-badge.counting {
+                animation: badge-count-pulse 0.75s ease-in-out infinite;
             }
         `;
         document.head.appendChild(style);
@@ -457,14 +547,19 @@
         return originalXHRSend.apply(this, arguments);
     };
 
-    async function triggerPrAction(btn, operation, loadingText) {
+    async function triggerPrAction(btn, operation, loadingText, extraBody = {}, opts = {}) {
         const url = "http://localhost:8000/confluence";
+
+        const badge = btn._timerBadge || null;
+        let timerObj = null;
 
         const originalContent = btn.innerHTML;
         btn.disabled = true;
         btn.style.opacity = "0.85";
         btn.style.cursor = "wait";
         btn.innerHTML = `<span class="injected-spinner"></span>${loadingText}`;
+
+        if (badge) timerObj = startTimerBadge(badge);
 
         try {
             const pageUrl = new URL(window.location.href);
@@ -474,7 +569,8 @@
                 body: JSON.stringify({
                     operation,
                     hostname: pageUrl.hostname,
-                    pathname: pageUrl.pathname
+                    pathname: pageUrl.pathname,
+                    ...extraBody
                 })
             });
 
@@ -499,6 +595,11 @@
             if (operation === "delete") modalTitle = "Delete Result";
             else if (operation === "rewrite") modalTitle = "PR Review Result";
             else if (operation === "explain") modalTitle = "Explanation Result";
+
+            if (opts.refreshOnSuccess && res.ok) {
+                window.location.reload();
+                return;
+            }
 
             // Only Explain: ensure marked + DOMPurify are available, then render markdown safely.
             if (operation === "explain") {
@@ -530,6 +631,113 @@
             btn.innerHTML = originalContent;
             btn.style.opacity = "1";
             btn.style.cursor = "pointer";
+            if (badge && timerObj) stopTimerBadge(badge, timerObj, operation);
+        }
+    }
+
+    // --- Page Instruction History (localStorage, keyed per page pathname) ---
+    const PAGE_HISTORY_KEY_PREFIX = "ctx_page_instructions_";
+
+    function getHistoryKey() {
+        return PAGE_HISTORY_KEY_PREFIX + window.location.pathname;
+    }
+
+    function loadPageHistory() {
+        try {
+            const raw = localStorage.getItem(getHistoryKey());
+            return raw ? JSON.parse(raw) : [];
+        } catch { return []; }
+    }
+
+    function saveToPageHistory(instruction) {
+        if (!instruction || !instruction.trim()) return;
+        try {
+            const history = loadPageHistory();
+            history.push({ instruction: instruction.trim(), ts: Date.now() });
+            if (history.length > 20) history.splice(0, history.length - 20);
+            localStorage.setItem(getHistoryKey(), JSON.stringify(history));
+        } catch {}
+    }
+
+    function renderPageHistory(container, textInputEl) {
+        const history = loadPageHistory();
+        container.innerHTML = "";
+
+        if (history.length === 0) {
+            container.style.display = "none";
+            return;
+        }
+
+        container.style.display = "block";
+
+        const header = document.createElement("div");
+        header.textContent = "Previous instructions";
+        header.style.cssText = `
+            font-size: 11px;
+            font-weight: 700;
+            color: #6b7280;
+            margin-bottom: 6px;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            font-family: ui-sans-serif, system-ui, -apple-system;
+        `;
+        container.appendChild(header);
+
+        const entries = [...history].reverse();
+        for (const entry of entries) {
+            const ts = new Date(entry.ts).toLocaleString([], {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false
+            });
+
+            const item = document.createElement("div");
+            item.style.cssText = `
+                padding: 7px 10px;
+                border-radius: 8px;
+                background: rgba(255, 255, 255, 0.55);
+                margin-bottom: 5px;
+                cursor: pointer;
+                transition: background 0.12s ease;
+            `;
+            item.addEventListener("mouseenter", () => {
+                item.style.background = "rgba(255, 255, 255, 0.85)";
+            });
+            item.addEventListener("mouseleave", () => {
+                item.style.background = "rgba(255, 255, 255, 0.55)";
+            });
+            item.addEventListener("click", () => {
+                textInputEl.value = entry.instruction;
+                textInputEl.focus();
+            });
+
+            const tsEl = document.createElement("div");
+            tsEl.textContent = ts;
+            tsEl.style.cssText = `
+                font-size: 10px;
+                color: #9ca3af;
+                margin-bottom: 3px;
+                font-family: ui-monospace, 'Cascadia Code', monospace;
+            `;
+
+            const textEl = document.createElement("div");
+            textEl.textContent = entry.instruction.length > 120
+                ? entry.instruction.slice(0, 120) + "\u2026"
+                : entry.instruction;
+            textEl.style.cssText = `
+                font-size: 12px;
+                color: #374151;
+                line-height: 1.45;
+                white-space: pre-wrap;
+                word-break: break-word;
+                font-family: ui-sans-serif, system-ui, -apple-system;
+            `;
+
+            item.appendChild(tsEl);
+            item.appendChild(textEl);
+            container.appendChild(item);
         }
     }
 
@@ -669,9 +877,177 @@
         });
         apiButton.addEventListener("click", showApiModal);
 
-        wrapper.appendChild(explainButton);
-        wrapper.appendChild(rewriteButton);
-        wrapper.appendChild(deleteButton);
+        // --- TEXT INPUT PANEL (hidden by default) ---
+        const textInputPanel = document.createElement("div");
+        textInputPanel.style.cssText = `
+            position: fixed;
+            bottom: 45px;
+            right: 20px;
+            z-index: 999999;
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.25);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            border-radius: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15);
+            width: 320px;
+            box-sizing: border-box;
+        `;
+
+        const textInput = document.createElement("textarea");
+        textInput.placeholder = "Type your message...";
+        textInput.style.cssText = `
+            width: 100%;
+            padding: 10px 12px;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 12px;
+            font-size: 14px;
+            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+            resize: vertical;
+            min-height: 80px;
+            outline: none;
+            box-sizing: border-box;
+            background: rgba(255, 255, 255, 0.92);
+            color: #111827;
+        `;
+        textInput.addEventListener("focus", () => {
+            textInput.style.borderColor = "#8b5cf6";
+            textInput.style.boxShadow = "0 0 0 3px rgba(139, 92, 246, 0.15)";
+        });
+        textInput.addEventListener("blur", () => {
+            textInput.style.borderColor = "#e5e7eb";
+            textInput.style.boxShadow = "none";
+        });
+
+        const panelBtnRow = document.createElement("div");
+        panelBtnRow.style.cssText = `
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        `;
+
+        const sendInputBtn = document.createElement("button");
+        sendInputBtn.textContent = "Send";
+        sendInputBtn.style.cssText = `
+            padding: 8px 18px;
+            background-color: #10b981;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+            transition: all 0.15s ease;
+            display: flex;
+            align-items: center;
+        `;
+        sendInputBtn.addEventListener("mouseenter", () => {
+            sendInputBtn.style.backgroundColor = "#059669";
+            sendInputBtn.style.transform = "translateY(-1px)";
+        });
+        sendInputBtn.addEventListener("mouseleave", () => {
+            sendInputBtn.style.backgroundColor = "#10b981";
+            sendInputBtn.style.transform = "translateY(0)";
+        });
+        sendInputBtn.addEventListener("click", () => {
+            const instruction = textInput.value;
+            saveToPageHistory(instruction);
+            renderPageHistory(historyContainer, textInput);
+            textInput.disabled = true;
+            textInput.style.opacity = "0.6";
+            textInput.style.cursor = "not-allowed";
+            triggerPrAction(sendInputBtn, "page_update", "Sending...", { instruction }, { refreshOnSuccess: true })
+                .finally(() => {
+                    textInput.disabled = false;
+                    textInput.style.opacity = "1";
+                    textInput.style.cursor = "";
+                });
+        });
+
+        const closeInputBtn = document.createElement("button");
+        closeInputBtn.textContent = "Close";
+        closeInputBtn.style.cssText = `
+            padding: 8px 16px;
+            background-color: #ef4444;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+            transition: all 0.15s ease;
+        `;
+        closeInputBtn.addEventListener("mouseenter", () => {
+            closeInputBtn.style.backgroundColor = "#dc2626";
+            closeInputBtn.style.transform = "translateY(-1px)";
+        });
+        closeInputBtn.addEventListener("mouseleave", () => {
+            closeInputBtn.style.backgroundColor = "#ef4444";
+            closeInputBtn.style.transform = "translateY(0)";
+        });
+        closeInputBtn.addEventListener("click", () => {
+            textInputPanel.style.display = "none";
+            wrapper.style.display = "flex";
+        });
+
+        const historyContainer = document.createElement("div");
+        historyContainer.className = "custom-scrollbar";
+        historyContainer.style.cssText = `
+            display: none;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 6px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.5);
+        `;
+
+        panelBtnRow.appendChild(sendInputBtn);
+        panelBtnRow.appendChild(closeInputBtn);
+        textInputPanel.appendChild(textInput);
+        textInputPanel.appendChild(panelBtnRow);
+        textInputPanel.appendChild(historyContainer);
+        document.body.appendChild(textInputPanel);
+
+        // --- BUTTON: UPDATE PAGE (VIOLET) ---
+        const askButton = document.createElement("button");
+        askButton.textContent = "Update Page";
+        askButton.style.cssText = `
+            padding: 10px 18px;
+            background-color: #8b5cf6;
+            color: white;
+            border: none;
+            border-radius: 14px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 8px 24px 0 rgba(139, 92, 246, 0.6);
+            transition: all 0.15s ease;
+        `;
+        askButton.addEventListener("mouseenter", () => {
+            askButton.style.backgroundColor = "#7c3aed";
+            askButton.style.transform = "translateY(-1px)";
+        });
+        askButton.addEventListener("mouseleave", () => {
+            askButton.style.backgroundColor = "#8b5cf6";
+            askButton.style.transform = "translateY(0)";
+        });
+        askButton.addEventListener("click", () => {
+            wrapper.style.display = "none";
+            textInputPanel.style.display = "flex";
+            renderPageHistory(historyContainer, textInput);
+            textInput.focus();
+        });
+
+        wrapper.appendChild(wrapWithTimerBadge(askButton));
+        wrapper.appendChild(wrapWithTimerBadge(explainButton));
+        wrapper.appendChild(wrapWithTimerBadge(rewriteButton));
+        wrapper.appendChild(wrapWithTimerBadge(deleteButton));
         wrapper.appendChild(apiButton);
         document.body.appendChild(wrapper);
     }

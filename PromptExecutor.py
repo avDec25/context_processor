@@ -160,7 +160,7 @@ def get_confluence_id(pathname: str) -> str:
 
 async def confluence_operation(payload: dict) -> str:
     operation = payload.get('operation')
-    if operation in ['rewrite', 'explain', 'delete']:
+    if operation in ['rewrite', 'explain', 'delete', 'page_update']:
         confluence_id = get_confluence_id(payload.get('pathname'))
 
         if payload['operation'] == "delete":
@@ -187,10 +187,19 @@ async def confluence_operation(payload: dict) -> str:
             })
             return ai_response
 
-        elif payload['operation'] == "rewrite":
-            prompt = await get_prompt_with_data('confluence_rewrite', confluence_content=current_content)
+        elif payload['operation'] == "rewrite" or payload['operation'] == "page_update":
+            if payload['operation'] == "page_update":
+                prompt = await get_prompt_with_data(
+                    'confluence_page_update',
+                    confluence_content=current_content,
+                    instruction=payload.get('instruction', '')
+                )
+            else:
+                prompt = await get_prompt_with_data('confluence_rewrite', confluence_content=current_content)
+
             if not prompt:
-                return "Failed to load prompt template 'confluence_rewrite'"
+                return f"Failed to load prompt template 'confluence_{payload['operation']}'"
+
             ai_response = await run_codex(prompt)
 
             next_version = current_version + 1
