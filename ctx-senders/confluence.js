@@ -1019,22 +1019,22 @@
         askButton.textContent = "Update Page";
         askButton.style.cssText = `
             padding: 10px 18px;
-            background-color: #8b5cf6;
+            background-color: #f59e0b;
             color: white;
             border: none;
             border-radius: 14px;
             cursor: pointer;
             font-size: 14px;
             font-weight: 600;
-            box-shadow: 0 8px 24px 0 rgba(139, 92, 246, 0.6);
+            box-shadow: 0 8px 24px 0 rgba(245, 158, 11, 0.6);
             transition: all 0.15s ease;
         `;
         askButton.addEventListener("mouseenter", () => {
-            askButton.style.backgroundColor = "#7c3aed";
+            askButton.style.backgroundColor = "#d97706";
             askButton.style.transform = "translateY(-1px)";
         });
         askButton.addEventListener("mouseleave", () => {
-            askButton.style.backgroundColor = "#8b5cf6";
+            askButton.style.backgroundColor = "#f59e0b";
             askButton.style.transform = "translateY(0)";
         });
         askButton.addEventListener("click", () => {
