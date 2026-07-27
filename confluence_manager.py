@@ -1,0 +1,116 @@
+import requests
+import psycopg2
+import json
+import logging
+import os
+from pathlib import Path
+from psycopg2.extras import Json
+from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
+
+# Load environment variables from .env.local.conf
+env_path = Path(__file__).parent / '.env.local.conf'
+load_dotenv(dotenv_path=env_path)
+
+# --- Configuration ---
+DB_CONFIG = {
+    "dbname": os.getenv("DB_NAME", "context_processor"),
+    "user": os.getenv("DB_USER", "admin"),
+    "password": os.getenv("DB_PASSWORD", "securepassword"),
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": os.getenv("DB_PORT", "5432")
+}
+
+# https://confluence.rakuten-it.com/confluence/spaces/IBH/pages/6420926933/2.+Investigation+-+Genre+History+Upgrade+and+SyncBatch+Abolishment
+confluence_url = os.getenv("CONFLUENCE_URL", "https://confluence.rakuten-it.com/confluence")
+page_id = os.getenv("CONFLUENCE_PAGE_ID", "6420926933")
+personal_access_token = os.getenv("PERSONAL_ACCESS_TOKEN", "")
+api_url = f"{confluence_url}/rest/api/content/{page_id}?expand=body.storage"
+headers = {
+    "Authorization": f"Bearer {personal_access_token}",
+    "Accept": "application/json"
+}
+
+
+def get_connection():
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        return conn
+    except Exception as e:
+        logger.error("Error connecting to DB: %s", e)
+        return None
+
+
+def write_confluence_ai_response(confluence_id, ai_responses):
+    conn = get_connection()
+    if not conn:
+        return
+
+    try:
+        with conn.cursor() as cur:
+            sql = """
+            INSERT INTO confluence (confluence_id, ai_responses) 
+            VALUES (%s, %s)
+            ON CONFLICT (confluence_id) 
+            DO UPDATE SET 
+                ai_responses = confluence.ai_responses || EXCLUDED.ai_responses;
+            """
+
+            cur.execute(sql, (confluence_id, Json(ai_responses)))
+
+        conn.commit()
+        logger.info("Confluence #%s saved (inserted or merged).", confluence_id)
+
+    except Exception as e:
+        logger.error("Error saving Confluence #%s: %s", confluence_id, e)
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+def read_confluence_ai_response(confluence_id):
+    conn = get_connection()
+    if not conn:
+        return
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT ai_responses FROM confluence WHERE confluence_id = %s", (confluence_id,))
+            row = cur.fetchone()
+            if row:
+                logger.info("Cache hit for Confluence #%s.", confluence_id)
+                return row[0]
+            else:
+                logger.info("No cached response for Confluence #%s.", confluence_id)
+                return None
+    finally:
+        conn.close()
+
+
+def delete_confluence_ai_response(confluence_id):
+    conn = get_connection()
+    if not conn:
+        return False
+
+    try:
+        with conn.cursor() as cur:
+            sql = "DELETE FROM confluence WHERE confluence_id = %s"
+            cur.execute(sql, (confluence_id,))
+            rows_deleted = cur.rowcount
+
+        conn.commit()
+
+        if rows_deleted > 0:
+            logger.info("Confluence #%s deleted.", confluence_id)
+            return True
+        else:
+            logger.warning("Confluence #%s not found, nothing deleted.", confluence_id)
+            return False
+
+    except Exception as e:
+        logger.error("Error deleting Confluence #%s: %s", confluence_id, e)
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
