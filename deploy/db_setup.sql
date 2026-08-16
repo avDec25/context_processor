@@ -1,15 +1,33 @@
-CREATE TABLE pull_requests (
+CREATE TABLE IF NOT EXISTS pull_requests (
     pr_id TEXT PRIMARY KEY,
     created_on TIMESTAMPTZ DEFAULT (NOW() AT TIME ZONE 'Asia/Tokyo'),
     ai_responses JSONB
 );
 
 
-CREATE TABLE confluence (
+CREATE TABLE IF NOT EXISTS confluence (
     confluence_id TEXT PRIMARY KEY,
     created_on TIMESTAMPTZ DEFAULT (NOW() AT TIME ZONE 'Asia/Tokyo'),
     ai_responses JSONB
 );
+
+
+CREATE TABLE IF NOT EXISTS email_summaries (
+    interval_key TEXT PRIMARY KEY,
+    folder TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    email_count INTEGER NOT NULL DEFAULT 0,
+    emails JSONB,
+    ai_summary TEXT,
+    created_on TIMESTAMPTZ DEFAULT (NOW() AT TIME ZONE 'Asia/Tokyo'),
+    updated_on TIMESTAMPTZ DEFAULT (NOW() AT TIME ZONE 'Asia/Tokyo')
+);
+
+-- Kept separate from the Markdown output so checkbox changes do not modify the
+-- AI-generated summary.  ADD COLUMN makes this safe for existing deployments.
+ALTER TABLE email_summaries
+    ADD COLUMN IF NOT EXISTS todos JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 
 -- Prompts table for storing AI prompts
@@ -650,6 +668,70 @@ If 3 or more emails share a topic (an incident, a project, a recurring discussio
 - Sort "Action Required" by urgency — most time-sensitive first.
 - Use plain Markdown only: headers (##/###), bullet lists, **bold** for emphasis. No HTML.',
 'Summarise a batch of emails from a folder and surface what needs attention, action items, and key themes')
+
+ON CONFLICT (key)
+DO UPDATE SET
+    prompt_text = EXCLUDED.prompt_text,
+    description = EXCLUDED.description,
+    updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO prompts (key, prompt_text, description) VALUES
+('email_interval_summary',
+'You are a senior engineer and inbox triage assistant. You will be given every email retrieved from a specific mail folder over an explicit date interval, provided as JSON. Your job is to produce a focused, skimmable summary that tells the reader exactly what happened and what needs their attention.
+
+## Inbox Batch
+- Folder: {folder}
+- Date interval: {start_date} through {end_date} (inclusive)
+- Retrieved: {email_count} email(s)
+
+## Emails (JSON)
+Each object has: date_time, subject, content, content_format (plain or html).
+
+```json
+{email_data}
+```
+
+---
+
+## Your Output (Markdown)
+
+Produce the following sections. Omit any section that has nothing to report.
+
+### Todo List
+Put this first. For every concrete action required from this person (reply, approve, decide, fix), create exactly one Markdown task-list item using this exact format:
+- [ ] Concise action, including the relevant subject or date when useful.
+Do not create todos for FYI items, waiting on others, or speculative work. Keep this section even when it is empty so the application can persist its checkbox state.
+
+### TL;DR
+2-4 bullet points. The single most important things that happened in this interval - what would you tell someone who has 30 seconds to get up to speed?
+
+### Action Required
+Items where this person needs to do something (reply, approve, decide, fix). For each:
+- **Subject / Date** - one sentence on what is needed and why it matters.
+- If there is a deadline or urgency signal in the email, call it out explicitly.
+
+### FYI / Informational
+Threads that are good to know but require no action. Keep this brief; group similar topics where possible.
+
+### Waiting On Others
+Threads where a response or action from someone else is pending. Note who and what.
+
+### Low Priority / Noise
+Newsletters, automated notifications, monitoring alerts with no anomaly, routine receipts - list them in one compact block.
+
+### Key Themes
+If 3 or more emails share a topic, call it out as a named theme with a 1-sentence description.
+
+---
+
+## Rules
+- Be concrete: reference actual subject lines and dates from the JSON.
+- Do not invent information not present in the emails.
+- If content looks HTML-escaped or truncated, note it briefly rather than reproducing raw markup.
+- Sort "Action Required" by urgency - most time-sensitive first.
+- Use plain Markdown only: headers (##/###), bullet lists, **bold** for emphasis. No HTML.
+- If zero emails were retrieved, output only: "No emails were found for this interval."',
+'Summarise every email retrieved for an explicit start/end date interval, from JSON export data')
 
 ON CONFLICT (key)
 DO UPDATE SET
