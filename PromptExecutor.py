@@ -5,6 +5,11 @@ import sys
 import tempfile
 import logging
 import configparser
+import hashlib
+import re
+import xml.etree.ElementTree as ET
+from html.entities import name2codepoint
+from urllib.parse import parse_qs, urlsplit
 from datetime import date
 from pathlib import Path
 from pr_manager import read_pr_ai_response, write_pr_ai_response, delete_pr_ai_response
@@ -361,146 +366,135 @@ async def pull_request_operation(payload: dict) -> str:
     return "Operation is not recognized"
 
 
-def get_confluence_id(pathname: str) -> str:
-    return pathname.split('/')[5]
+CONFLUENCE_PROMPTS = {
+    "explain": "confluence_explain",
+    "rewrite": "confluence_rewrite",
+    "page_update": "confluence_page_update",
+}
+
+
+def get_confluence_id(pathname: str, search: str = "") -> str:
+    """Support space URLs and the older viewpage.action?pageId=... URLs."""
+    parsed = urlsplit(pathname or "")
+    match = re.search(r"/pages/([0-9]+)(?:/|$)", parsed.path)
+    page_id = match.group(1) if match else parse_qs(search.lstrip("?") or parsed.query).get("pageId", [""])[0]
+    if not re.fullmatch(r"[0-9]+", page_id):
+        raise ValueError("A Confluence page URL with a numeric page ID is required")
+    return page_id
+
+
+def validate_confluence_storage(content: str) -> str:
+    """Reject prose, Markdown fences and malformed storage before replacing a page."""
+    content = content.strip()
+    if not content or "<!DOCTYPE" in content.upper() or "<!ENTITY" in content.upper():
+        raise PromptExecutionError("Model returned empty or invalid Confluence storage")
+    # Confluence also uses named HTML entities; normalize them only for parsing.
+    def entity(match):
+        name = match.group(1)
+        return f"&#{name2codepoint[name]};" if name in name2codepoint else match.group(0)
+
+    parse_content = re.sub(r"&([A-Za-z][A-Za-z0-9]+);", entity, content)
+    try:
+        root = ET.fromstring(
+            '<root xmlns:ac="http://atlassian.com/content" xmlns:ri="http://atlassian.com/resource">'
+            + parse_content + '</root>'
+        )
+    except ET.ParseError as exc:
+        raise PromptExecutionError("Model returned malformed Confluence storage; page was not updated") from exc
+    if (not len(root) or (root.text or "").strip()
+            or any((child.tail or "").strip() for child in root)
+            or any(node.tag in {"html", "head", "body", "script"} for node in root.iter())):
+        raise PromptExecutionError("Model must return only the complete Confluence storage body")
+    return content
 
 
 async def confluence_operation(payload: dict) -> str:
-    operation = payload.get('operation')
-    if operation in ['rewrite', 'explain', 'delete', 'page_update']:
-        confluence_id = get_confluence_id(payload.get('pathname'))
+    operation = payload.get("operation")
+    if operation not in {*CONFLUENCE_PROMPTS, "delete"}:
+        raise ValueError("Unrecognized Confluence operation")
+    if payload.get("hostname") != urlsplit(CONFLUENCE_URL).hostname:
+        raise ValueError("Page hostname does not match the configured Confluence server")
+    confluence_id = get_confluence_id(payload.get("pathname"), payload.get("search", ""))
+    instruction = payload.get("instruction", "")
+    if operation == "page_update" and (not isinstance(instruction, str) or not instruction.strip()):
+        raise ValueError("page_update requires a non-empty instruction")
 
-        if payload['operation'] == "delete":
-            if delete_confluence_ai_response(confluence_id):
-                return f"Success: Deleted entry {confluence_id}"
-            else:
-                return "Failed: None Deleted"
+    if operation == "delete":
+        if delete_confluence_ai_response(confluence_id):
+            return f"Success: Cleared cached results for {confluence_id}"
+        raise PromptExecutionError("Failed to clear cached results; database unavailable or deletion failed")
 
-        response = read_confluence_ai_response(confluence_id) or {}
-        cached_response = response.get(operation)
-        if isinstance(cached_response, str) and cached_response.strip():
-            return cached_response
-
-        current_content, current_version, page_id, page_title = await get_confluence_data(payload['hostname'],
-                                                                                           payload['pathname'])
-        prompt = None
-
-        if payload['operation'] == "explain":
-            prompt = await get_prompt_with_data('confluence_explain', confluence_content=current_content)
-            if not prompt:
-                raise PromptExecutionError("Failed to load prompt template 'confluence_explain'")
-            ai_response = await run_codex(prompt)
-            write_confluence_ai_response(confluence_id, {
-                payload['operation']: ai_response,
-            })
-            return ai_response
-
-        elif payload['operation'] == "rewrite" or payload['operation'] == "page_update":
-            if payload['operation'] == "page_update":
-                prompt = await get_prompt_with_data(
-                    'confluence_page_update',
-                    confluence_content=current_content,
-                    instruction=payload.get('instruction', '')
-                )
-            else:
-                prompt = await get_prompt_with_data('confluence_rewrite', confluence_content=current_content)
-
-            if not prompt:
-                raise PromptExecutionError(f"Failed to load prompt template 'confluence_{payload['operation']}'")
-
-            ai_response = await run_codex(prompt)
-
-            next_version = current_version + 1
-            update_payload = {
-                "id": page_id,
-                "type": "page",
-                "title": page_title,
-                "version": {
-                    "number": next_version
-                },
-                "body": {
-                    "storage": {
-                        "value": ai_response,
-                        "representation": "storage"
-                    }
-                }
-            }
-
-            put_api_url = f"{CONFLUENCE_URL}/rest/api/content/{page_id}"
-            logger.info("Updating Confluence page at: %s (version %d)", put_api_url, next_version)
-
-            try:
-                loop = asyncio.get_event_loop()
-                put_response = await loop.run_in_executor(
-                    None,
-                    lambda: requests.put(put_api_url, headers=headers, data=json.dumps(update_payload))
-                )
-                put_response.raise_for_status()
-
-                updated_page_data = put_response.json()
-                logger.info("Page '%s' (ID: %s) updated to version %s. View: %s%s",
-                            updated_page_data['title'], page_id,
-                            updated_page_data['version']['number'],
-                            CONFLUENCE_URL, updated_page_data['_links']['webui'])
-
-                return ai_response
-            except requests.exceptions.HTTPError as http_err:
-                logger.error("HTTP error updating Confluence page: %s (status %s)", http_err, http_err.response.status_code)
-                try:
-                    logger.error("Confluence error details: %s", _t(json.dumps(http_err.response.json())))
-                except json.JSONDecodeError:
-                    logger.error("Confluence error body: %s", _t(http_err.response.text))
-            except requests.exceptions.ConnectionError as conn_err:
-                logger.error("Connection error updating Confluence page: %s", conn_err)
-            except requests.exceptions.Timeout as timeout_err:
-                logger.error("Timeout updating Confluence page: %s", timeout_err)
-            except requests.exceptions.RequestException as req_err:
-                logger.error("Request error updating Confluence page: %s", req_err)
-            except KeyError as key_err:
-                logger.error("Missing key in Confluence API response: %s", key_err)
-            except Exception as e:
-                logger.error("Unexpected error updating Confluence page: %s", e)
-
-    return "Operation is not recognized"
-
-
-async def get_confluence_data(hostname, pathname):
-    page_id = get_confluence_id(pathname)
-
-    # 1. Fetch Current Page Content and Version
-    get_api_url = f"{CONFLUENCE_URL}/rest/api/content/{page_id}?expand=body.storage,version"
-    logger.info("Fetching Confluence page content from: %s", get_api_url)
-
+    current_content, current_version, page_id, page_title = await get_confluence_data(
+        payload["hostname"], payload["pathname"], payload.get("search", "")
+    )
+    prompt_data = {"confluence_content": current_content}
+    if operation == "page_update":
+        prompt_data["instruction"] = instruction.strip()
+    prompt_key = CONFLUENCE_PROMPTS[operation]
     try:
-        loop = asyncio.get_event_loop()
-        get_response = await loop.run_in_executor(
-            None,
-            lambda: requests.get(get_api_url, headers=headers)
+        prompt = await get_prompt_with_data(prompt_key, **prompt_data)
+    except ValueError as exc:
+        raise PromptExecutionError(str(exc)) from exc
+    if not prompt:
+        raise PromptExecutionError(f"Failed to load prompt template '{prompt_key}'")
+
+    # Only explanations are reusable. Include the rendered prompt so prompt edits
+    # and external page edits both invalidate cached results, including legacy ones.
+    fingerprint = hashlib.sha256(json.dumps(
+        [CONFLUENCE_URL, current_version, page_title, prompt], ensure_ascii=False
+    ).encode("utf-8")).hexdigest()
+    if operation == "explain":
+        response = read_confluence_ai_response(confluence_id) or {}
+        cached = response.get("explain")
+        if (response.get("explain_fingerprint") == fingerprint
+                and isinstance(cached, str) and cached.strip()):
+            return cached
+
+    ai_response = await run_codex(prompt)
+    if operation == "explain":
+        write_confluence_ai_response(confluence_id, {
+            "explain": ai_response, "explain_fingerprint": fingerprint,
+        })
+        return ai_response
+
+    ai_response = validate_confluence_storage(ai_response)
+    if ai_response == current_content.strip():
+        return ai_response
+    update_payload = {
+        "id": page_id,
+        "type": "page",
+        "title": page_title,
+        "version": {"number": current_version + 1},
+        "body": {"storage": {"value": ai_response, "representation": "storage"}},
+    }
+    put_api_url = f"{CONFLUENCE_URL.rstrip('/')}/rest/api/content/{page_id}"
+    try:
+        put_response = await asyncio.to_thread(
+            requests.put, put_api_url, headers=headers, json=update_payload, timeout=30
         )
-        get_response.raise_for_status()
-        page_data = get_response.json()
+        put_response.raise_for_status()
+    except requests.exceptions.RequestException as exc:
+        raise PromptExecutionError(f"Failed to update Confluence page {page_id}: {exc}") from exc
+    # Version-based cache validation also protects against cache deletion failure.
+    delete_confluence_ai_response(confluence_id)
+    return ai_response
 
-        current_content = page_data['body']['storage']['value']
-        current_version = page_data['version']['number']
-        page_title = page_data['title']
 
-        logger.info("Fetched Confluence page '%s' (ID: %s), version %s, content: %s",
-                    page_title, page_id, current_version, _t(current_content))
-        return current_content, current_version, page_id, page_title
-
-    except requests.exceptions.HTTPError as http_err:
-        logger.error("HTTP error fetching Confluence page: %s (status %s)", http_err, http_err.response.status_code)
-        try:
-            logger.error("Confluence error details: %s", _t(json.dumps(http_err.response.json())))
-        except json.JSONDecodeError:
-            logger.error("Confluence error body: %s", _t(http_err.response.text))
-    except requests.exceptions.ConnectionError as conn_err:
-        logger.error("Connection error fetching Confluence page: %s", conn_err)
-    except requests.exceptions.Timeout as timeout_err:
-        logger.error("Timeout fetching Confluence page: %s", timeout_err)
-    except requests.exceptions.RequestException as req_err:
-        logger.error("Request error fetching Confluence page: %s", req_err)
-    except KeyError as key_err:
-        logger.error("Missing key in Confluence page response: %s", key_err)
-    except Exception as e:
-        logger.error("Unexpected error fetching Confluence page: %s", e)
+async def get_confluence_data(hostname, pathname, search=""):
+    page_id = get_confluence_id(pathname, search)
+    get_api_url = f"{CONFLUENCE_URL.rstrip('/')}/rest/api/content/{page_id}"
+    try:
+        response = await asyncio.to_thread(
+            requests.get, get_api_url, headers=headers,
+            params={"expand": "body.storage,version"}, timeout=30
+        )
+        response.raise_for_status()
+        page_data = response.json()
+        content = page_data["body"]["storage"]["value"]
+        version = page_data["version"]["number"]
+        title = page_data["title"]
+        if not isinstance(content, str) or not isinstance(version, int) or not isinstance(title, str):
+            raise ValueError("Invalid page content, version or title")
+        return content, version, page_id, title
+    except (requests.exceptions.RequestException, KeyError, TypeError, ValueError) as exc:
+        raise PromptExecutionError(f"Failed to fetch Confluence page {page_id}: {exc}") from exc

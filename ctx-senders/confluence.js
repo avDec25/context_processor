@@ -547,7 +547,7 @@
         return originalXHRSend.apply(this, arguments);
     };
 
-    async function triggerPrAction(btn, operation, loadingText, extraBody = {}, opts = {}) {
+    async function triggerConfluenceAction(btn, operation, loadingText, extraBody = {}, opts = {}) {
         const url = "http://localhost:8000/confluence";
 
         const badge = btn._timerBadge || null;
@@ -570,6 +570,7 @@
                     operation,
                     hostname: pageUrl.hostname,
                     pathname: pageUrl.pathname,
+                    search: pageUrl.search,
                     ...extraBody
                 })
             });
@@ -592,8 +593,9 @@
             });
 
             let modalTitle = "Result";
-            if (operation === "delete") modalTitle = "Delete Result";
-            else if (operation === "rewrite") modalTitle = "PR Review Result";
+            if (operation === "delete") modalTitle = "Clear Cache Result";
+            else if (operation === "rewrite") modalTitle = "Rewrite Result";
+            else if (operation === "page_update") modalTitle = "Page Update Result";
             else if (operation === "explain") modalTitle = "Explanation Result";
 
             if (opts.refreshOnSuccess && res.ok) {
@@ -833,7 +835,7 @@
             explainButton.style.transform = "translateY(0)";
         });
         explainButton.addEventListener("click", () =>
-            triggerPrAction(explainButton, "explain", "Explaining...")
+            triggerConfluenceAction(explainButton, "explain", "Explaining...")
         );
 
         // --- BUTTON 2: REWRITE (EMERALD) ---
@@ -862,12 +864,12 @@
             rewriteButton.style.transform = "translateY(0)";
         });
         rewriteButton.addEventListener("click", () =>
-            triggerPrAction(rewriteButton, "rewrite", "ReWriting...")
+            triggerConfluenceAction(rewriteButton, "rewrite", "Rewriting...", {}, { refreshOnSuccess: true })
         );
 
         // --- BUTTON 3: DELETE (RED) ---
         const deleteButton = document.createElement("button");
-        deleteButton.textContent = "Delete";
+        deleteButton.textContent = "Clear Cache";
         deleteButton.style.cssText = `
             padding: 10px 18px;
             background-color: #ef4444;
@@ -891,7 +893,7 @@
             deleteButton.style.transform = "translateY(0)";
         });
         deleteButton.addEventListener("click", () =>
-            triggerPrAction(deleteButton, "delete", "Deleting...")
+            triggerConfluenceAction(deleteButton, "delete", "Deleting...")
         );
 
         // --- BUTTON 4: API DATA (GRAY) ---
@@ -997,13 +999,17 @@
             sendInputBtn.style.transform = "translateY(0)";
         });
         sendInputBtn.addEventListener("click", () => {
-            const instruction = textInput.value;
+            const instruction = textInput.value.trim();
+            if (!instruction) {
+                textInput.focus();
+                return;
+            }
             saveToPageHistory(instruction);
             renderPageHistory(historyContainer, textInput);
             textInput.disabled = true;
             textInput.style.opacity = "0.6";
             textInput.style.cursor = "not-allowed";
-            triggerPrAction(sendInputBtn, "page_update", "Sending...", { instruction }, { refreshOnSuccess: true })
+            triggerConfluenceAction(sendInputBtn, "page_update", "Sending...", { instruction }, { refreshOnSuccess: true })
                 .finally(() => {
                     textInput.disabled = false;
                     textInput.style.opacity = "1";

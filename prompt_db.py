@@ -5,6 +5,7 @@ Provides connection pooling and async prompt retrieval.
 import logging
 import os
 import asyncio
+import re
 from typing import Optional
 from pathlib import Path
 import psycopg2
@@ -29,6 +30,19 @@ DB_CONFIG = {
 
 # Connection pool (initialized on first use)
 _connection_pool = None
+
+CONFLUENCE_PROMPT_FIELDS = {
+    "confluence_explain": {"confluence_content"},
+    "confluence_rewrite": {"confluence_content"},
+    "confluence_page_update": {"confluence_content", "instruction"},
+}
+
+
+def validate_prompt_template(prompt_key: str, prompt_text: str):
+    required = CONFLUENCE_PROMPT_FIELDS.get(prompt_key, set())
+    missing = [field for field in sorted(required) if "{" + field + "}" not in prompt_text]
+    if missing:
+        raise ValueError(f"Prompt '{prompt_key}' is missing placeholders: {', '.join(missing)}")
 
 
 def get_connection_pool():
@@ -93,9 +107,15 @@ async def get_prompt_with_data(prompt_key: str, **kwargs) -> Optional[str]:
     """
     prompt_template = await get_prompt(prompt_key)
     if prompt_template:
-        for key, value in kwargs.items():
-            prompt_template = prompt_template.replace('{' + key + '}', str(value))
-        return prompt_template
+        validate_prompt_template(prompt_key, prompt_template)
+        missing = CONFLUENCE_PROMPT_FIELDS.get(prompt_key, set()) - kwargs.keys()
+        if missing:
+            raise ValueError(f"Missing prompt inputs: {', '.join(sorted(missing))}")
+        # Replace only original placeholders, never tokens inside inserted data.
+        pattern = "|".join(re.escape("{" + key + "}") for key in kwargs)
+        if not pattern:
+            return prompt_template
+        return re.sub(pattern, lambda match: str(kwargs[match.group(0)[1:-1]]), prompt_template)
     return None
 
 
@@ -171,6 +191,7 @@ async def update_prompt(prompt_key: str, prompt_text: str) -> bool:
     Returns:
         True if updated successfully, False otherwise
     """
+    validate_prompt_template(prompt_key, prompt_text)
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _update_prompt_sync, prompt_key, prompt_text)
 

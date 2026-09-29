@@ -105,8 +105,8 @@ def delete_confluence_ai_response(confluence_id):
             logger.info("Confluence #%s deleted.", confluence_id)
             return True
         else:
-            logger.warning("Confluence #%s not found, nothing deleted.", confluence_id)
-            return False
+            logger.info("Confluence #%s has no cached results to clear.", confluence_id)
+            return True  # Clearing an already-empty cache is successful.
 
     except Exception as e:
         logger.error("Error deleting Confluence #%s: %s", confluence_id, e)

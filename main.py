@@ -2,6 +2,7 @@ import json
 import logging
 import time
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -74,14 +75,20 @@ async def pr_processor(request: Request):
     return response
 
 
+class ConfluenceRequest(BaseModel):
+    operation: Literal["explain", "rewrite", "page_update", "delete"]
+    hostname: str
+    pathname: str
+    search: str = ""
+    instruction: str = ""
+
+
 @app.post("/confluence")
-async def confluence_processor(request: Request):
-    data = await request.body()
-    payload = json.loads(data.decode("utf-8"))
-
-    response = await confluence_operation(payload)
-
-    return response
+async def confluence_processor(payload: ConfluenceRequest):
+    try:
+        return await confluence_operation(payload.dict())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 class EmailSummaryRequest(BaseModel):
@@ -195,7 +202,10 @@ async def get_prompt_by_key(prompt_key: str):
 @app.put("/prompts/{prompt_key}")
 async def update_prompt_by_key(prompt_key: str, prompt_update: PromptUpdate):
     """Update a prompt's text."""
-    success = await update_prompt(prompt_key, prompt_update.prompt_text)
+    try:
+        success = await update_prompt(prompt_key, prompt_update.prompt_text)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     if not success:
         raise HTTPException(status_code=404, detail=f"Prompt '{prompt_key}' not found or update failed")
