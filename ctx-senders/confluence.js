@@ -741,6 +741,48 @@
         }
     }
 
+    // Keep the native Edit action available in the floating button bar.
+    function initFloatingEditButton(wrapper) {
+        const id = "injected-floating-edit-button";
+        if (document.getElementById(id)) return;
+
+        const button = document.createElement("button");
+        button.id = id;
+        button.type = "button";
+        button.textContent = "Edit";
+        button.setAttribute("aria-label", "Edit page");
+        button.style.cssText = `
+            padding: 10px 18px;
+            border: none;
+            border-radius: 14px;
+            background-color: #3b82f6;
+            color: white;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 8px 24px 0 rgba(59, 130, 246, 0.6);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        `;
+        button.addEventListener("mouseenter", () => {
+            button.style.backgroundColor = "#2563eb";
+            button.style.transform = "translateY(-1px)";
+        });
+        button.addEventListener("mouseleave", () => {
+            button.style.backgroundColor = "#3b82f6";
+            button.style.transform = "translateY(0)";
+        });
+        wrapper.appendChild(button);
+
+        button.addEventListener("click", () => {
+            const editLink = document.getElementById("editPageLink");
+            const isAvailable = editLink?.isConnected && editLink.getClientRects().length > 0 &&
+                getComputedStyle(editLink).visibility === "visible" &&
+                !editLink.closest('[hidden], [inert], [aria-hidden="true"]') &&
+                !editLink.matches(':disabled, [aria-disabled="true"], .disabled');
+            if (isAvailable) editLink.click();
+        });
+    }
+
     function initButtons() {
         injectGlobalStyles();
 
@@ -1044,6 +1086,7 @@
             textInput.focus();
         });
 
+        initFloatingEditButton(wrapper);
         wrapper.appendChild(wrapWithTimerBadge(askButton));
         wrapper.appendChild(wrapWithTimerBadge(explainButton));
         wrapper.appendChild(wrapWithTimerBadge(rewriteButton));

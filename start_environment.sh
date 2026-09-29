@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -o pipefail
+
 PID_FILE="/tmp/context_processor_env.pid"
 STATUS_FILE="/tmp/context_processor_status.txt"
 FASTAPI_PID_FILE="/tmp/context_processor_fastapi.pid"
@@ -10,13 +12,26 @@ DB_CONTAINER="pr_postgres_container"
 DB_USER="admin"
 DB_NAME="context_processor"
 
-echo $$ > "$PID_FILE"
-> "$LOG_FILE"
+# Rancher Desktop exposes Docker through this context.  A stale DOCKER_HOST
+# inherited from a terminal or launch agent overrides that context and makes a
+# healthy Rancher Desktop look unavailable.
+unset DOCKER_HOST
+export DOCKER_CONTEXT="rancher-desktop"
 
 log_status() {
     echo "$1" > "$STATUS_FILE"
     echo "[$(date '+%H:%M:%S')] $1" | tee -a "$LOG_FILE"
 }
+
+# A healthy server may have been started outside sysapp.  Do not overwrite its
+# state or attempt to create a second environment in that case.
+if curl --fail --silent --max-time 2 http://localhost:8000/ | grep -q 'Health OK'; then
+    log_status "running:existing_service"
+    exit 0
+fi
+
+echo $$ > "$PID_FILE"
+> "$LOG_FILE"
 
 cleanup() {
     log_status "stopping"
@@ -41,12 +56,12 @@ open -a "Rancher Desktop" 2>/dev/null || true
 log_status "waiting_rancher"
 MAX_WAIT=300
 WAITED=0
-until docker ps &>/dev/null 2>&1; do
+until docker --context "$DOCKER_CONTEXT" info &>/dev/null; do
     sleep 5
     WAITED=$((WAITED + 5))
     log_status "waiting_rancher:${WAITED}s"
     if [ $WAITED -ge $MAX_WAIT ]; then
-        log_status "error:Rancher Desktop did not start within ${MAX_WAIT}s"
+        log_status "error:Rancher Desktop Docker context was unavailable after ${MAX_WAIT}s"
         rm -f "$PID_FILE"
         exit 1
     fi
@@ -62,6 +77,18 @@ if ! make prereq 2>&1 | tee -a "$LOG_FILE"; then
     exit 1
 fi
 log_status "prereq_done"
+
+# Prefer this project's container, but reuse the container that already owns
+# the application's configured Postgres port when one is running.
+if [ "$(docker inspect --format '{{.State.Running}}' "$DB_CONTAINER" 2>/dev/null)" != "true" ]; then
+    DB_CONTAINER="$(docker ps -q --filter 'publish=5432' | head -n 1)"
+fi
+
+if [ -z "$DB_CONTAINER" ]; then
+    log_status "error:no Postgres container is running on port 5432"
+    rm -f "$PID_FILE"
+    exit 1
+fi
 
 # ── 4. Wait for Postgres to accept connections ────────────────────────────────
 log_status "waiting_postgres"
