@@ -312,8 +312,48 @@
             .injected-timer-badge.counting {
                 animation: badge-count-pulse 0.75s ease-in-out infinite;
             }
+
+            @keyframes current-page-highlight-pulse {
+                0%, 100% { background-color: rgba(255, 214, 0, 0.55); }
+                50%       { background-color: rgba(255, 214, 0, 0.85); }
+            }
+
+            span.plugin_pagetree_current {
+                background-color: rgba(255, 214, 0, 0.7) !important;
+                border-radius: 4px !important;
+                box-shadow: 0 0 0 2px rgba(255, 179, 0, 0.9) !important;
+                animation: current-page-highlight-pulse 1.6s ease-in-out infinite;
+            }
         `;
         document.head.appendChild(style);
+    }
+
+    // --- Highlight the current page in the left navigation tree ---
+    // Confluence renders/re-renders the page tree asynchronously (AJAX expand/collapse,
+    // SPA-ish navigation), so a MutationObserver is used to catch the span whenever it appears.
+    function highlightCurrentPageTreeSpan(root = document) {
+        root.querySelectorAll?.("span.plugin_pagetree_current")?.forEach((el) => {
+            el.classList.add("injected-current-page-highlighted");
+        });
+    }
+
+    function initCurrentPageTreeHighlighter() {
+        highlightCurrentPageTreeSpan();
+
+        const observer = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                if (mutation.type !== "childList") continue;
+                for (const node of mutation.addedNodes) {
+                    if (node.nodeType !== 1) continue; // ELEMENT_NODE
+                    if (node.matches?.("span.plugin_pagetree_current")) {
+                        node.classList.add("injected-current-page-highlighted");
+                    }
+                    highlightCurrentPageTreeSpan(node);
+                }
+            }
+        });
+
+        observer.observe(document.body, { childList: true, subtree: true });
     }
 
     function showModal({ title, bodyHtml }) {
@@ -787,6 +827,7 @@
 
     function initButtons() {
         injectGlobalStyles();
+        initCurrentPageTreeHighlighter();
 
         // Optional: prefetch deps (best-effort). Explain still works if this fails; it will retry on click.
         ensureExplainMarkdownDeps().catch(() => {});
