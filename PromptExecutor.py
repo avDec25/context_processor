@@ -1,20 +1,16 @@
 import subprocess
 import requests
 import os
-import sys
 import tempfile
 import logging
-import configparser
 import hashlib
 import re
 import xml.etree.ElementTree as ET
 from html.entities import name2codepoint
 from urllib.parse import parse_qs, urlsplit
-from datetime import date
 from pathlib import Path
 from pr_manager import read_pr_ai_response, write_pr_ai_response, delete_pr_ai_response
 from confluence_manager import read_confluence_ai_response, write_confluence_ai_response, delete_confluence_ai_response
-from email_manager import extract_todos, read_email_summary, write_email_summary
 import json
 import asyncio
 from prompt_db import get_prompt_with_data
@@ -38,12 +34,6 @@ env_path = Path(__file__).parent / '.env.local.conf'
 load_dotenv(dotenv_path=env_path)
 
 CODEX_TIMEOUT_SECONDS = int(os.getenv("CODEX_TIMEOUT_SECONDS", "600"))
-
-# sysapp/email-reader owns the actual Outlook connection (Microsoft Graph or
-# local AppleScript export). Context Processor drives that same program as a
-# subprocess so email collection stays in exactly one place.
-EMAIL_READER_DIR = Path(os.getenv("EMAIL_READER_DIR", str(Path.home() / "sysapp" / "email-reader")))
-EMAIL_READER_CONFIG = EMAIL_READER_DIR / "config.txt"
 
 BITBUCKET_TOKEN = os.getenv("BITBUCKET_TOKEN", "")
 CONFLUENCE_URL = os.getenv("CONFLUENCE_URL", "https://confluence.rakuten-it.com/confluence")
@@ -114,153 +104,6 @@ async def run_codex(prompt: str) -> str:
             os.unlink(tmp_path)
         except FileNotFoundError:
             pass
-
-
-def _load_email_reader_config() -> configparser.ConfigParser:
-    config = configparser.ConfigParser()
-    if not config.read(EMAIL_READER_CONFIG):
-        raise PromptExecutionError(f"Email reader configuration file not found: {EMAIL_READER_CONFIG}")
-    return config
-
-
-def _email_export_path(config: configparser.ConfigParser, start_date: str, end_date: str) -> Path:
-    """Mirror outlook_applescript_export.py's interval_data_path naming convention
-    so Context Processor reads back exactly the file that program wrote."""
-    output_dir = EMAIL_READER_DIR / config["mail"]["output_directory"]
-    configured_name = Path(config["local_outlook"]["data_file"])
-    suffix = configured_name.suffix or ".jsonl"
-    stem = configured_name.stem if configured_name.suffix else configured_name.name
-    return output_dir / f"{stem}_{start_date}_to_{end_date}{suffix}"
-
-
-def get_email_interval_key(folder: str, start_date: str, end_date: str) -> str:
-    return f"{folder}__{start_date}__{end_date}"
-
-
-async def collect_emails(start_date: str, end_date: str, refresh: bool = False):
-    """Collect emails for a date interval the same way sysapp/email-reader does:
-    drive outlook_applescript_export.py, which exports Outlook messages to a
-    local JSON Lines cache file keyed by the interval, then read that file back."""
-    config = _load_email_reader_config()
-    data_path = _email_export_path(config, start_date, end_date)
-    folder = config.get("local_outlook", "folder", fallback="Inbox")
-
-    cmd = [
-        sys.executable, str(EMAIL_READER_DIR / "outlook_applescript_export.py"),
-        "--config", str(EMAIL_READER_CONFIG),
-        "--start-date", start_date,
-        "--end-date", end_date,
-    ]
-    if refresh:
-        cmd.append("--refresh")
-
-    logger.info("Collecting emails for %s to %s (folder: %s)", start_date, end_date, folder)
-    result = await asyncio.to_thread(
-        subprocess.run, cmd, cwd=str(EMAIL_READER_DIR), text=True, capture_output=True, check=False,
-    )
-    if result.returncode != 0:
-        details = (result.stderr or result.stdout or "no error output").strip()
-        logger.error("Email export failed with exit code %d: %s", result.returncode, _t(details))
-        raise PromptExecutionError(f"Email export failed with exit code {result.returncode}: {_t(details, 300)}")
-
-    if not data_path.is_file():
-        raise PromptExecutionError(f"Email export completed but expected file was not created: {data_path.name}")
-
-    emails = _read_email_export(data_path)
-
-    return emails, folder, data_path
-
-
-def _read_email_export(data_path: Path) -> list:
-    """Read the email-reader's JSON feed, whether it is an array or JSON Lines."""
-    raw_data = data_path.read_text(encoding="utf-8").strip()
-    if not raw_data:
-        return []
-
-    if raw_data.startswith("["):
-        try:
-            emails = json.loads(raw_data)
-        except json.JSONDecodeError as exc:
-            raise PromptExecutionError(
-                f"Invalid JSON in {data_path.name}: {exc.msg}"
-            ) from exc
-        if not isinstance(emails, list):
-            raise PromptExecutionError(f"Expected a JSON array in {data_path.name}")
-        return emails
-
-    emails = []
-    for line_number, line in enumerate(raw_data.splitlines(), start=1):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            emails.append(json.loads(line))
-        except json.JSONDecodeError as exc:
-            raise PromptExecutionError(
-                f"Invalid JSON on line {line_number} of {data_path.name}: {exc.msg}"
-            ) from exc
-    return emails
-
-
-async def email_summary_operation(payload: dict) -> dict:
-    start_date = (payload.get('start_date') or '').strip()
-    end_date = (payload.get('end_date') or '').strip()
-    refresh = bool(payload.get('refresh', False))
-
-    if not start_date or not end_date:
-        raise PromptExecutionError("Both 'start_date' and 'end_date' are required (YYYY-MM-DD)")
-    try:
-        start = date.fromisoformat(start_date)
-        end = date.fromisoformat(end_date)
-    except ValueError as exc:
-        raise PromptExecutionError("Dates must use ISO format YYYY-MM-DD") from exc
-    if start > end:
-        raise PromptExecutionError("'start_date' must be on or before 'end_date'")
-
-    if not refresh:
-        probed_folder = _load_email_reader_config().get("local_outlook", "folder", fallback="Inbox")
-        cached = read_email_summary(get_email_interval_key(probed_folder, start_date, end_date))
-        if cached and cached.get('ai_summary'):
-            return cached
-
-    emails, folder, data_path = await collect_emails(start_date, end_date, refresh)
-    interval_key = get_email_interval_key(folder, start_date, end_date)
-
-    prompt = await get_prompt_with_data(
-        'email_interval_summary',
-        folder=folder,
-        start_date=start_date,
-        end_date=end_date,
-        email_count=len(emails),
-        email_data=json.dumps(emails, ensure_ascii=False, indent=2),
-    )
-    if not prompt:
-        raise PromptExecutionError("Failed to load prompt template 'email_interval_summary'")
-
-    ai_summary = await run_codex(prompt)
-
-    record = {
-        'interval_key': interval_key,
-        'folder': folder,
-        'start_date': start_date,
-        'end_date': end_date,
-        'email_count': len(emails),
-        'emails': emails,
-        'ai_summary': ai_summary,
-        'todos': extract_todos(ai_summary),
-    }
-    write_email_summary(record)
-
-    # The emails are now durably stored in Postgres (record['emails']); the
-    # exporter's local .jsonl was only a temporary hand-off file, so remove it
-    # from its original place in sysapp/email-reader/downloads.
-    try:
-        data_path.unlink()
-        logger.info("Removed temporary export file %s after saving to Postgres", data_path)
-    except OSError as exc:
-        logger.warning("Could not remove temporary export file %s: %s", data_path, exc)
-
-    return record
 
 
 async def pull_request_data(hostname, pathname):

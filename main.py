@@ -13,11 +13,8 @@ from PromptExecutor import (
     PromptExecutionError,
     pull_request_operation,
     confluence_operation,
-    email_summary_operation,
-    get_email_interval_key,
 )
 from prompt_db import close_connection_pool, list_prompts, get_prompt, update_prompt
-from email_manager import read_email_summary, save_email_todo, delete_email_summary
 
 logging.basicConfig(
     level=logging.INFO,
@@ -89,71 +86,6 @@ async def confluence_processor(payload: ConfluenceRequest):
         return await confluence_operation(payload.dict())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-class EmailSummaryRequest(BaseModel):
-    start_date: str
-    end_date: str
-    refresh: bool = False
-
-
-class EmailTodoUpdate(BaseModel):
-    completed: bool
-
-
-@app.post("/emails/summary")
-async def email_summary(request: EmailSummaryRequest):
-    """Collect emails for a date interval (via sysapp/email-reader) and return an AI summary."""
-    response = await email_summary_operation(request.dict())
-    return _email_summary_response(response)
-
-
-@app.get("/emails/summary/{folder}/{start_date}/{end_date}")
-async def get_email_summary(folder: str, start_date: str, end_date: str):
-    """Fetch a previously generated email summary for an interval."""
-    interval_key = get_email_interval_key(folder, start_date, end_date)
-    cached = read_email_summary(interval_key)
-    if not cached:
-        raise HTTPException(status_code=404, detail=f"No email summary found for {start_date} to {end_date}")
-    return _email_summary_response(cached)
-
-
-@app.delete("/emails/summary/{folder}/{start_date}/{end_date}")
-async def delete_email_summary_endpoint(folder: str, start_date: str, end_date: str):
-    """Delete a previously generated email summary for an interval."""
-    interval_key = get_email_interval_key(folder, start_date, end_date)
-    if not delete_email_summary(interval_key):
-        raise HTTPException(status_code=404, detail=f"No email summary found for {start_date} to {end_date}")
-    return {"deleted": True}
-
-
-@app.patch("/emails/summary/{folder}/{start_date}/{end_date}/todos/{todo_id}")
-async def update_email_todo(
-    folder: str,
-    start_date: str,
-    end_date: str,
-    todo_id: str,
-    update: EmailTodoUpdate,
-):
-    """Save a generated email-summary todo checkbox's completion state."""
-    todos = save_email_todo(
-        get_email_interval_key(folder, start_date, end_date), todo_id, update.completed
-    )
-    if todos is None:
-        raise HTTPException(status_code=404, detail="Email summary or todo not found")
-    return {"todos": todos}
-
-
-def _email_summary_response(record: dict) -> dict:
-    """Return the generated result without echoing the collected email bodies."""
-    return {
-        "folder": record["folder"],
-        "start_date": record["start_date"],
-        "end_date": record["end_date"],
-        "email_count": record["email_count"],
-        "summary": record["ai_summary"],
-        "todos": record.get("todos", []),
-    }
 
 
 # Pydantic model for prompt update
